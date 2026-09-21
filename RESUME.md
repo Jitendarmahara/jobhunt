@@ -1,5 +1,23 @@
 # RESUME — Autonomous Career-Agent build (for the scheduled cloud agent)
 
+## STANDING DIRECTIVES (highest priority — owner's explicit ask)
+1. **Build the FULL system to completion**, production-ready — all four agents
+   (job finder, response builder, job applier, response analyzer) plus project
+   builder and observability. Do not stop at partial; keep going through every
+   item until the whole diagram is implemented and tested.
+2. **Make the flow DIAGRAMMATIC.** Upgrade `app/console.html` from the current
+   stage strip to a real node-and-edge **diagram** (inline SVG): each pipeline
+   stage is a node showing live status/counts, edges show flow, the currently
+   active stage is highlighted/animated, and clicking a node shows what happened
+   there. A non-technical person must see, at a glance, what is happening at each
+   point and whether it is working. Keep `/live` too.
+3. **Self-perpetuation:** work is on branch/commits pushed to this repo. If you
+   run low on capacity, commit + push what you have and leave a clear updated
+   RESUME so the next run continues. (Re-arming the scheduled cloud routine is
+   done by the owner's LOCAL Claude Code session, which has the scheduler; this
+   cloud run cannot reschedule itself — just push and summarize.)
+
+
 You are continuing an in-progress build. Read this fully, then continue the work,
 commit, and push. You run in an **isolated cloud checkout** — there is NO local
 Docker/Temporal, no DeepSeek key, and no local database here. So: build code and
