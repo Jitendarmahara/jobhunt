@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     daily_application_limit: int = 0
     daily_outreach_limit: int = 0
     log_level: str = "INFO"
+    # Autonomous discovery: the worker registers a Temporal schedule that polls
+    # enabled sources and launches a lifecycle workflow per newly discovered job.
+    auto_discovery_enabled: bool = True
+    discovery_interval_minutes: int = 10
+    # Response Builder may browse the web (chromium) to research the company.
+    research_browsing_enabled: bool = True
 
 
 @lru_cache

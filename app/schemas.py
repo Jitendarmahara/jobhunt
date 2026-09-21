@@ -3,7 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
-from app.models import ApplicationStatus, Domain, JobStatus, OutcomeStage, SpecStatus
+from app.models import ApplicationStatus, Domain, JobStatus, LifecycleState, OutcomeStage, SpecStatus
 
 
 class ORMModel(BaseModel):
@@ -48,8 +48,19 @@ class JobRead(ORMModel):
     title: str
     location: str | None
     status: JobStatus
+    lifecycle_state: LifecycleState
     first_seen_at: datetime
     last_seen_at: datetime
+
+
+class JobTransitionRead(ORMModel):
+    id: str
+    job_id: str
+    from_state: LifecycleState | None
+    to_state: LifecycleState
+    actor: str
+    reason: str | None
+    created_at: datetime
 
 
 class AgentGenome(BaseModel):

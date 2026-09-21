@@ -4,6 +4,10 @@ import unittest
 from pathlib import Path
 
 os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
+# Keep tests hermetic from a local .env: never call a live model endpoint.
+os.environ["MODEL_BASE_URL"] = ""
+os.environ["MODEL_NAME"] = ""
+os.environ["MODEL_API_KEY"] = ""
 
 from app.bootstrap import bootstrap_agent_specs
 from app.db import Base, SessionLocal, engine, initialize_database

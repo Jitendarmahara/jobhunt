@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Live Activity — Career Agent</title>
+<style>
+  :root{
+    --bg:#0d0f13; --panel:#141821; --ink:#e7eaf0; --muted:#8b95a6; --line:#232935;
+    --green:#3fb950; --blue:#4c9bff; --amber:#e3a008; --red:#f85149; --purple:#a371f7; --teal:#39c5cf;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:13.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  header{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);padding:12px 16px;z-index:5}
+  .top{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+  h1{font-size:16px;margin:0;font-family:system-ui,sans-serif}
+  a{color:var(--blue);text-decoration:none}
+  .live{display:flex;align-items:center;gap:7px;font-weight:700}
+  .pulse{width:9px;height:9px;border-radius:50%;background:var(--red)}
+  .pulse.on{background:var(--green);box-shadow:0 0 0 0 rgba(63,185,80,.6);animation:p 1.6s infinite}
+  @keyframes p{0%{box-shadow:0 0 0 0 rgba(63,185,80,.5)}70%{box-shadow:0 0 0 7px rgba(63,185,80,0)}100%{box-shadow:0 0 0 0 rgba(63,185,80,0)}}
+  .totals{display:flex;gap:16px;margin-left:auto;flex-wrap:wrap}
+  .totals b{color:var(--ink)} .totals span{color:var(--muted)}
+  .controls{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+  select,button{font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:6px 9px;cursor:pointer}
+  button:hover{border-color:var(--blue)}
+  .feed{padding:8px 12px 60px}
+  .row{display:grid;grid-template-columns:78px 130px 90px 1fr auto;gap:10px;align-items:baseline;
+    padding:5px 8px;border-radius:6px;border-left:3px solid transparent}
+  .row:hover{background:#11151d}
+  .row.error{border-left-color:var(--red)} .row.warn{border-left-color:var(--amber)}
+  .row.start{border-left-color:var(--blue)} .row.end{border-left-color:var(--green)}
+  .t{color:var(--muted)}
+  .agent{font-weight:700;padding:1px 8px;border-radius:999px;font-size:11.5px;text-align:center;white-space:nowrap}
+  .a-job_finder{background:#12233a;color:#79b8ff}
+  .a-response_builder{background:#1b1533;color:#c8a6ff}
+  .a-job_applier{background:#0f2a1e;color:#5ad18a}
+  .a-response_analyzer{background:#2a220f;color:#e6c65a}
+  .a-coordinator,.a-system{background:#1c2029;color:#9aa4b2}
+  .tool{font-size:11px;color:var(--muted)}
+  .tool.deepseek{color:var(--purple)} .tool.chromium{color:var(--teal)}
+  .tool.pdf{color:#e6934a} .tool.github{color:#d2a8ff} .tool.gmail{color:#f28b82}
+  .ic{font-weight:700;width:14px;display:inline-block}
+  .ic.start{color:var(--blue)} .ic.end{color:var(--green)} .ic.info{color:var(--muted)} .ic.error{color:var(--red)} .ic.warn{color:var(--amber)}
+  .title{word-break:break-word}
+  .meta{color:var(--muted);font-size:11.5px;white-space:nowrap}
+  .cost{color:var(--green)} .tok{color:var(--purple)} .dur{color:var(--muted)}
+  .detail{grid-column:1 / -1;color:var(--muted);background:#0a0c10;border:1px solid var(--line);
+    border-radius:6px;padding:8px;margin-top:4px;white-space:pre-wrap;display:none;font-size:11.5px}
+  .row.open .detail{display:block}
+  .empty{color:var(--muted);padding:24px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>🛰 Live Activity</h1>
+    <span class="live"><span id="pulse" class="pulse"></span><span id="connlabel">connecting…</span></span>
+    <a href="/">← overview</a>
+    <div class="totals">
+      <span>events <b id="tEvents">0</b></span>
+      <span>tokens <b id="tTokens">0</b></span>
+      <span>est. cost <b id="tCost" class="cost">$0.000000</b></span>
+    </div>
+  </div>
+  <div class="controls">
+    <label>agent <select id="fAgent"><option value="">all</option></select></label>
+    <label>tool <select id="fTool"><option value="">all</option></select></label>
+    <button id="pause">⏸ Pause autoscroll</button>
+    <button id="clear">Clear</button>
+    <span class="meta">tip: click a row to see the raw detail (prompts, URLs, fields)</span>
+  </div>
+</header>
+<div id="feed" class="feed"><div class="empty">Waiting for activity… run a job from the overview page and watch it here.</div></div>
+
+<script>
+const AGENTS=new Set(), TOOLS=new Set(), seen=new Set();
+let events=[], paused=false, totTokens=0, totCost=0;
+const ICON={start:"▶",end:"✓",info:"•",error:"✗"};
+const feed=document.getElementById("feed");
+
+function opt(sel,val){ const o=document.createElement("option"); o.value=val; o.textContent=val; sel.appendChild(o); }
+function fmtTime(iso){ try{return new Date(iso).toLocaleTimeString();}catch(e){return "";} }
+function esc(s){ return (s??"").toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+function matchesFilter(ev){
+  const a=document.getElementById("fAgent").value, t=document.getElementById("fTool").value;
+  if(a && ev.agent!==a) return false;
+  if(t && ev.tool!==t) return false;
+  return true;
+}
+function rowHTML(ev){
+  const icClass = ev.level==="error"?"error":(ev.level==="warn"?"warn":ev.phase);
+  const ic = ICON[ev.phase]||"•";
+  const rowClass = ev.level==="error"?"error":(ev.level==="warn"?"warn":ev.phase);
+  const tok = (ev.tokens_in||ev.tokens_out) ? `<span class="tok">+${(ev.tokens_in||0)}/${(ev.tokens_out||0)}tok</span> ` : "";
+  const cost = ev.cost_usd ? `<span class="cost">$${ev.cost_usd.toFixed(6)}</span> ` : "";
+  const dur = ev.duration_ms!=null ? `<span class="dur">${ev.duration_ms}ms</span>` : "";
+  const tool = ev.tool ? `<span class="tool ${ev.tool}">${ev.tool}</span>` : `<span class="tool"></span>`;
+  const det = ev.detail && Object.keys(ev.detail).length ? esc(JSON.stringify(ev.detail,null,2)) : "";
+  return `<div class="row ${rowClass}" data-id="${ev.id}">
+    <span class="t">${fmtTime(ev.created_at)}</span>
+    <span class="agent a-${ev.agent}">${ev.agent}</span>
+    ${tool}
+    <span class="title"><span class="ic ${icClass}">${ic}</span> ${esc(ev.title)}</span>
+    <span class="meta">${tok}${cost}${dur}</span>
+    ${det?`<pre class="detail">${det}</pre>`:""}
+  </div>`;
+}
+function render(){
+  const list=events.filter(matchesFilter);
+  if(!list.length){ feed.innerHTML='<div class="empty">No matching activity yet.</div>'; return; }
+  feed.innerHTML=list.map(rowHTML).join("");
+  if(!paused) window.scrollTo(0,document.body.scrollHeight);
+}
+function addEvent(ev){
+  if(seen.has(ev.id)) return; seen.add(ev.id);
+  events.push(ev); if(events.length>1500) events=events.slice(-1500);
+  totTokens += (ev.tokens_in||0)+(ev.tokens_out||0); totCost += ev.cost_usd||0;
+  document.getElementById("tEvents").textContent=seen.size;
+  document.getElementById("tTokens").textContent=totTokens.toLocaleString();
+  document.getElementById("tCost").textContent="$"+totCost.toFixed(6);
+  if(!AGENTS.has(ev.agent)){ AGENTS.add(ev.agent); opt(document.getElementById("fAgent"),ev.agent); }
+  if(ev.tool && !TOOLS.has(ev.tool)){ TOOLS.add(ev.tool); opt(document.getElementById("fTool"),ev.tool); }
+}
+
+// click to expand detail
+feed.addEventListener("click",e=>{ const r=e.target.closest(".row"); if(r) r.classList.toggle("open"); });
+document.getElementById("pause").onclick=e=>{ paused=!paused; e.target.textContent=paused?"▶ Resume autoscroll":"⏸ Pause autoscroll"; };
+document.getElementById("clear").onclick=()=>{ events=[]; render(); };
+document.getElementById("fAgent").onchange=render;
+document.getElementById("fTool").onchange=render;
+
+function connect(){
+  const es=new EventSource("/api/events/stream");
+  es.onopen=()=>{ document.getElementById("pulse").classList.add("on"); document.getElementById("connlabel").textContent="live"; };
+  es.onmessage=e=>{ try{ const ev=JSON.parse(e.data); addEvent(ev); render(); }catch(err){} };
+  es.onerror=()=>{ document.getElementById("pulse").classList.remove("on"); document.getElementById("connlabel").textContent="reconnecting…"; };
+}
+connect();
+</script>
+</body>
+</html>

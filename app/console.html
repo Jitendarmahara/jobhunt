@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Career Agent — Flow</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#fff; --ink:#1a1d24; --muted:#5b6472; --line:#e4e7ec;
+    --green:#0f9d58; --greenbg:#e6f4ea; --blue:#1a73e8; --bluebg:#e8f0fe;
+    --grey:#c4c9d2; --amber:#e37400; --amberbg:#fef3e2; --red:#d93025; --redbg:#fce8e6;
+    --purple:#8b3dff; --shadow:0 1px 3px rgba(16,24,40,.08),0 1px 2px rgba(16,24,40,.06);
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#0f1115;--card:#171a21;--ink:#e7eaf0;--muted:#9aa4b2;--line:#252a33;
+    --greenbg:#10281a;--bluebg:#122036;--amberbg:#2a1f0e;--redbg:#2a1412;--grey:#3a4150;}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:22px 16px 64px}
+  h1{font-size:23px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 18px}
+  a{color:var(--blue)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px;box-shadow:var(--shadow)}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 12px}
+  .row{display:flex;flex-wrap:wrap;gap:9px}
+  .chip{display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:10px;background:var(--bg);border:1px solid var(--line);font-weight:600;font-size:13px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--grey);flex:none}
+  .dot.ok{background:var(--green)}.dot.bad{background:var(--red)}.dot.warn{background:var(--amber)}
+  .banner{padding:11px 13px;border-radius:10px;font-weight:600;font-size:13.5px;margin-bottom:16px}
+  /* flow strip */
+  .flow{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}
+  .stage{flex:1;min-width:104px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:11px 10px;position:relative}
+  .stage .sn{font-size:11px;color:var(--muted)}
+  .stage .sl{font-weight:700;font-size:13px;margin:2px 0 8px;line-height:1.25}
+  .stage .cnt{font-size:22px;font-weight:800;line-height:1}
+  .stage .tool{font-size:10.5px;color:var(--muted);margin-top:6px}
+  .stage.active{border-color:var(--blue);box-shadow:0 0 0 2px var(--bluebg)}
+  .stage.active .cnt{color:var(--blue)}
+  .stage .live{position:absolute;top:8px;right:9px;width:8px;height:8px;border-radius:50%;background:var(--blue);animation:pp 1.4s infinite}
+  @keyframes pp{0%{box-shadow:0 0 0 0 rgba(26,115,232,.5)}70%{box-shadow:0 0 0 6px rgba(26,115,232,0)}100%{box-shadow:0 0 0 0 rgba(26,115,232,0)}}
+  .arrow{align-self:center;color:var(--muted);flex:none}
+  /* jobs */
+  .job{border:1px solid var(--line);border-radius:12px;margin-bottom:10px;background:var(--card);overflow:hidden}
+  .job-head{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 16px;cursor:pointer}
+  .job-head:hover{background:var(--bg)}
+  .job-title{font-weight:700;font-size:15.5px}
+  .job-co{color:var(--muted);font-size:13px}
+  .badge{font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;white-space:nowrap}
+  .badge.green{background:var(--greenbg);color:var(--green)}.badge.blue{background:var(--bluebg);color:var(--blue)}
+  .badge.amber{background:var(--amberbg);color:var(--amber)}.badge.red{background:var(--redbg);color:var(--red)}
+  .badge.grey{background:var(--bg);color:var(--muted)}
+  .mini{display:flex;gap:3px;margin-top:8px}
+  .mini i{height:5px;flex:1;border-radius:4px;background:var(--grey)}
+  .mini i.done{background:var(--green)}.mini i.now{background:var(--blue)}.mini i.skip{background:var(--amber)}.mini i.fail{background:var(--red)}
+  .detail{border-top:1px solid var(--line);padding:16px;display:none;background:var(--bg)}
+  .detail.open{display:block}
+  .sec{margin-bottom:14px}
+  .sec h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+  .kv{font-size:13.5px}
+  .pill{display:inline-block;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px 4px 2px 0;font-size:12.5px}
+  .good{color:var(--green)} .bad{color:var(--amber)}
+  ul{margin:4px 0;padding-left:20px} li{margin:2px 0;font-size:13.5px}
+  .tl{display:flex;gap:9px;padding:3px 0;font-size:13px}
+  .tl .d{flex:none;width:8px;height:8px;border-radius:50%;background:var(--green);margin-top:6px}
+  .tl .w{color:var(--muted);font-size:11.5px}
+  .muted{color:var(--muted)} .empty{color:var(--muted);text-align:center;padding:22px}
+  button{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:9px;padding:7px 11px;cursor:pointer}
+  button:hover{border-color:var(--blue);color:var(--blue)}
+  .foot{color:var(--muted);font-size:12.5px;text-align:center;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Career Agent — Flow</h1>
+  <p class="sub">Watch each job move through the whole pipeline. → <a href="/live" style="font-weight:700">Open the live activity feed</a> to see every tool call (AI, chromium) as it happens.</p>
+
+  <div id="banner" class="banner" style="display:none"></div>
+
+  <div class="card">
+    <h2>Is everything working?</h2>
+    <div id="components" class="row"><span class="empty">Checking…</span></div>
+  </div>
+
+  <div class="card">
+    <h2>The pipeline — where every job goes</h2>
+    <div id="flow" class="flow"></div>
+  </div>
+
+  <div class="card">
+    <h2>Jobs (click one to see everything the agents did)</h2>
+    <div id="jobs"><span class="empty">Loading…</span></div>
+  </div>
+
+  <p class="foot" id="foot">—</p>
+</div>
+
+<script>
+// stage -> lifecycle states, in flow order
+const STAGES=[
+  {n:1,l:"Find job",tool:"job finder",states:["discovered","normalized"]},
+  {n:2,l:"Check fit",tool:"AI",states:["qualifying","analyzed"]},
+  {n:3,l:"Research company",tool:"chromium + AI",states:["company_researched"]},
+  {n:4,l:"Match, gaps & people",tool:"AI",states:["candidate_matched","evidence_analyzed"]},
+  {n:5,l:"Tailor resume",tool:"PDF",states:["application_preparation","resume_generated"]},
+  {n:6,l:"Ready to apply",tool:"",states:["application_ready"]},
+  {n:7,l:"Apply & verify",tool:"chromium",states:["application_executing","application_verified","application_ambiguous"]},
+  {n:8,l:"Track reply",tool:"",states:["tracking","response_received","response_analyzed","action_planned","action_executed"]},
+];
+const STATE_PLAIN={
+  discovered:["Just found","grey"],normalized:["Read posting","blue"],qualifying:["AI checking fit…","blue"],
+  analyzed:["Good fit","green"],company_researched:["Company researched","blue"],candidate_matched:["Matched profile","blue"],
+  evidence_analyzed:["Evidence checked","blue"],application_preparation:["Preparing","blue"],resume_generated:["Resume written","blue"],
+  application_ready:["Ready to apply","green"],application_executing:["Applying…","blue"],application_verified:["Applied ✓","green"],
+  application_ambiguous:["Needs a look","amber"],tracking:["Tracking reply","green"],skipped:["Skipped — not a fit","amber"],failed:["Problem","red"],
+};
+const ACTOR={discovery:"Job finder",lifecycle:"Coordinator",job_finder:"AI fit-checker",response_builder:"Response builder",resume:"Resume writer",browser:"Application bot",job_applier:"Job applier"};
+
+function stageIndex(state){for(let i=0;i<STAGES.length;i++)if(STAGES[i].states.includes(state))return i;return -1;}
+async function J(p,o){const r=await fetch(p,o);if(!r.ok)throw new Error(r.status);return r.json();}
+function esc(s){return (s??"").toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+
+function renderComponents(s){
+  const c=s.components,order=["api","worker","temporal","database","model"],el=document.getElementById("components");
+  el.innerHTML=order.filter(k=>c[k]).map(k=>{
+    const comp=c[k],cls=comp.ok?"ok":"bad",state=comp.ok?"Working":"Down";
+    const ex=k==="model"?` <span class="muted">${comp.name||"not set"}</span>`:"";
+    return `<span class="chip"><span class="dot ${cls}"></span>${comp.label}: ${state}${ex}</span>`;
+  }).join("");
+  const la=s.live_actions,b=document.getElementById("banner");b.style.display="block";
+  if(la.enabled){b.style.background="var(--redbg)";b.style.color="var(--red)";b.textContent=`⚠ Live applying is ON — may submit real applications (up to ${la.daily_application_limit}/day).`;}
+  else{b.style.background="var(--amberbg)";b.style.color="var(--amber)";b.textContent="🛡 Safe mode: does everything up to “Ready to apply” but will NOT submit real applications yet.";}
+}
+function renderFlow(jobs){
+  const idx=jobs.map(j=>({i:stageIndex(j.lifecycle_state),term:j.lifecycle_state==="skipped"||j.lifecycle_state==="failed",now:!["skipped","failed"].includes(j.lifecycle_state)}));
+  const html=STAGES.map((st,si)=>{
+    const reached=idx.filter(x=>x.i>=si && x.i>=0).length;
+    const activeNow=idx.some(x=>x.i===si && x.now);
+    return `<div class="stage ${activeNow?"active":""}">${activeNow?'<span class="live"></span>':''}
+      <div class="sn">step ${st.n}</div><div class="sl">${st.l}</div>
+      <div class="cnt">${reached}</div>${st.tool?`<div class="tool">${st.tool}</div>`:'<div class="tool">&nbsp;</div>'}</div>`;
+  }).join('<span class="arrow">›</span>');
+  document.getElementById("flow").innerHTML=html;
+}
+
+const open=new Set();
+function miniBar(state){
+  const cur=stageIndex(state),skip=state==="skipped",fail=state==="failed";
+  let out="";for(let i=0;i<STAGES.length;i++){let c="";
+    if(skip)c=i<2?"done":(i===2?"skip":"");
+    else if(fail)c=i<cur?"done":(i===cur?"fail":"");
+    else{const done=["tracking","application_verified"].includes(state);c=done?"done":(i<cur?"done":(i===cur?"now":""));}
+    out+=`<i class="${c}"></i>`;}return out;
+}
+function list(arr){return (arr&&arr.length)?"<ul>"+arr.map(x=>`<li>${esc(typeof x==="string"?x:JSON.stringify(x))}</li>`).join("")+"</ul>":'<span class="muted">—</span>';}
+
+async function renderDetail(id,container){
+  container.innerHTML='<div class="empty">Loading details…</div>';
+  let d;try{d=await J(`/api/jobs/${id}/detail`);}catch(e){container.innerHTML='<div class="empty">Could not load.</div>';return;}
+  const fit=d.fit,r=d.company_research,g=d.resume_gaps,p=d.contacts;
+  let h="";
+  h+=`<div class="sec"><h4>1 · Fit check (AI)</h4>`;
+  h+= fit?`<div class="kv"><b>Score ${(fit.score*100|0)}%</b> — ${esc(fit.rationale||"")}</div>`:'<span class="muted">not run yet</span>';
+  h+=`</div>`;
+  h+=`<div class="sec"><h4>2 · Company research ${r&&r.source?`<span class="muted">(via ${esc(r.source)})</span>`:""}</h4>`;
+  if(r){h+=`<div class="kv">${esc(r.company_summary||"")}</div>`;
+    if(r.product)h+=`<div class="kv"><span class="muted">Product:</span> ${esc(r.product)}</div>`;
+    if(r.domain)h+=`<div class="kv"><span class="muted">Domain:</span> ${esc(r.domain)}</div>`;
+    if(r.key_technologies&&r.key_technologies.length)h+=`<div>${r.key_technologies.map(t=>`<span class="pill">${esc(t)}</span>`).join("")}</div>`;
+    if(r.top_requirements)h+=`<div class="kv"><span class="muted">Top requirements:</span></div>${list(r.top_requirements)}`;
+  }else h+='<span class="muted">not run yet</span>';
+  h+=`</div>`;
+  h+=`<div class="sec"><h4>3 · Resume strengths & gaps (AI)</h4>`;
+  if(g){h+=`<div class="kv good">Strengths:</div>${list(g.strengths)}<div class="kv bad">Gaps:</div>${list(g.gaps)}`;
+    if(g.project_recommended)h+=`<div class="kv"><span class="pill">💡 Project recommended</span> ${esc(g.project_idea||"")}</div>`;
+  }else h+='<span class="muted">not run yet</span>';
+  h+=`</div>`;
+  h+=`<div class="sec"><h4>4 · People to contact (AI)</h4>`;
+  if(p){h+=`<div>${(p.target_roles||[]).map(t=>`<span class="pill">${esc(t)}</span>`).join("")||'<span class="muted">—</span>'}</div>`;
+    if(p.outreach_angle)h+=`<div class="kv"><span class="muted">Angle:</span> ${esc(p.outreach_angle)}</div>`;
+  }else h+='<span class="muted">not run yet</span>';
+  h+=`</div>`;
+  h+=`<div class="sec"><h4>5 · Tailored resume</h4>`;
+  h+= d.resume?`<div class="kv">✅ Generated <span class="muted">${esc(d.resume.uri)}</span></div>`:'<span class="muted">not generated yet</span>';
+  h+=`</div>`;
+  h+=`<div class="sec"><h4>6 · Application</h4>`;
+  h+= d.application?`<div class="kv">Status: <b>${esc(d.application.status)}</b> <span class="muted">${esc(d.application.evidence_uri||"")}</span></div>`:'<span class="muted">not created yet</span>';
+  h+=`</div>`;
+  h+=`<div class="sec"><h4>Timeline</h4>`+ (d.transitions||[]).map(t=>{
+      const pl=STATE_PLAIN[t.to_state]||[t.to_state];
+      return `<div class="tl"><span class="d"></span><div>${esc(pl[0])} <span class="w">— ${ACTOR[t.actor]||t.actor} · ${new Date(t.at).toLocaleTimeString()}</span>${t.reason?`<div class="w">${esc(t.reason)}</div>`:""}</div></div>`;
+    }).join("")+`</div>`;
+  h+=`<div class="sec"><a href="/live" >▶ Watch this in the live feed</a></div>`;
+  container.innerHTML=h;
+}
+
+async function renderJobs(){
+  const jobs=await J("/api/jobs");
+  renderFlow(jobs);
+  const box=document.getElementById("jobs");
+  if(!jobs.length){box.innerHTML='<div class="empty">No jobs yet. Add a source and discover, or seed a job.</div>';return;}
+  box.innerHTML=jobs.map(j=>{
+    const pl=STATE_PLAIN[j.lifecycle_state]||[j.lifecycle_state,"grey"];const isOpen=open.has(j.id);
+    return `<div class="job">
+      <div class="job-head" data-id="${j.id}">
+        <div><div class="job-title">${esc(j.title)}</div><div class="job-co">${esc(j.company)}${j.location?" · "+esc(j.location):""}</div>
+          <div class="mini">${miniBar(j.lifecycle_state)}</div></div>
+        <span class="badge ${pl[1]}">${esc(pl[0])}</span>
+      </div>
+      <div class="detail ${isOpen?"open":""}" id="det-${j.id}"></div>
+    </div>`;
+  }).join("");
+  document.querySelectorAll(".job-head").forEach(el=>el.onclick=()=>{
+    const id=el.dataset.id,det=document.getElementById("det-"+id);
+    if(open.has(id)){open.delete(id);det.classList.remove("open");}
+    else{open.add(id);det.classList.add("open");renderDetail(id,det);}
+  });
+  // refresh any open detail
+  open.forEach(id=>{const det=document.getElementById("det-"+id);if(det)renderDetail(id,det);});
+}
+
+async function refresh(){
+  try{const s=await J("/api/system/status");renderComponents(s);await renderJobs();
+    document.getElementById("foot").textContent="Updated "+new Date().toLocaleTimeString()+" · auto-refresh 4s";
+  }catch(e){document.getElementById("foot").textContent="Cannot reach the system ("+e+")";}
+}
+refresh();setInterval(refresh,4000);
+</script>
+</body>
+</html>

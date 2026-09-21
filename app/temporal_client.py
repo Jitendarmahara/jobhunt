@@ -1,7 +1,34 @@
 from temporalio.client import Client
 
 from app.config import get_settings
-from app.workflows import ApplicationWorkflow, OutreachWorkflow, PollJobSourceWorkflow
+from app.workflows import (
+    ApplicationWorkflow,
+    DiscoveryWorkflow,
+    JobLifecycleWorkflow,
+    OutreachWorkflow,
+    PollJobSourceWorkflow,
+)
+
+
+async def _client() -> Client:
+    settings = get_settings()
+    return await Client.connect(settings.temporal_address, namespace=settings.temporal_namespace)
+
+
+async def start_job_lifecycle(job_id: str) -> str:
+    settings = get_settings()
+    workflow_id = f"job-lifecycle-{job_id}"
+    client = await _client()
+    await client.start_workflow(JobLifecycleWorkflow.run, job_id, id=workflow_id, task_queue=settings.temporal_task_queue)
+    return workflow_id
+
+
+async def start_discovery(source_id: str) -> str:
+    settings = get_settings()
+    workflow_id = f"discovery-{source_id}"
+    client = await _client()
+    await client.start_workflow(DiscoveryWorkflow.run, source_id, id=workflow_id, task_queue=settings.temporal_task_queue)
+    return workflow_id
 
 
 async def start_application(application_id: str) -> str:

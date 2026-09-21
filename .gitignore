@@ -11,3 +11,7 @@ node_modules/
 dashboard/dist/
 data/
 
+
+# local demo runtime (not for repo)
+career_demo.db
+.demo-artifacts/

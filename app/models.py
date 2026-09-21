@@ -37,6 +37,44 @@ class JobStatus(str, enum.Enum):
     CLOSED = "closed"
 
 
+class LifecycleState(str, enum.Enum):
+    """Fine-grained, durable lifecycle owned by the orchestration workflow.
+
+    ``JobStatus`` is retained as a coarse projection for the dashboard and the
+    existing endpoints; ``LifecycleState`` is the authoritative per-job state the
+    autonomous workflow advances through. See ``app/lifecycle.py`` for the
+    allowed transitions and the coarse-status projection.
+    """
+
+    DISCOVERED = "discovered"
+    NORMALIZED = "normalized"
+    QUALIFYING = "qualifying"
+    ANALYZED = "analyzed"
+    COMPANY_RESEARCHED = "company_researched"
+    CANDIDATE_MATCHED = "candidate_matched"
+    EVIDENCE_ANALYZED = "evidence_analyzed"
+    PROJECT_PLANNING = "project_planning"
+    PROJECT_BUILDING = "project_building"
+    PROJECT_TESTING = "project_testing"
+    PROJECT_REVIEW = "project_review"
+    PROJECT_PUBLISHED = "project_published"
+    EVIDENCE_UPDATED = "evidence_updated"
+    APPLICATION_PREPARATION = "application_preparation"
+    RESUME_GENERATED = "resume_generated"
+    APPLICATION_READY = "application_ready"
+    APPLICATION_EXECUTING = "application_executing"
+    APPLICATION_VERIFIED = "application_verified"
+    APPLICATION_AMBIGUOUS = "application_ambiguous"
+    OUTREACH_EXECUTING = "outreach_executing"
+    TRACKING = "tracking"
+    RESPONSE_RECEIVED = "response_received"
+    RESPONSE_ANALYZED = "response_analyzed"
+    ACTION_PLANNED = "action_planned"
+    ACTION_EXECUTED = "action_executed"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
 class ApplicationStatus(str, enum.Enum):
     DRAFT = "draft"
     BLOCKED = "blocked"
@@ -94,10 +132,28 @@ class Job(Base):
     metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
     fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     status: Mapped[JobStatus] = mapped_column(Enum(JobStatus), nullable=False, default=JobStatus.DISCOVERED)
+    lifecycle_state: Mapped[LifecycleState] = mapped_column(
+        Enum(LifecycleState), nullable=False, default=LifecycleState.DISCOVERED, index=True
+    )
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     __table_args__ = (UniqueConstraint("source_id", "provider_job_id", name="uq_source_provider_job"),)
+
+
+class JobTransition(Base):
+    """Append-only audit of every durable lifecycle transition."""
+
+    __tablename__ = "job_transitions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
+    from_state: Mapped[LifecycleState | None] = mapped_column(Enum(LifecycleState), nullable=True)
+    to_state: Mapped[LifecycleState] = mapped_column(Enum(LifecycleState), nullable=False)
+    actor: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class AgentSpec(Base):
@@ -257,3 +313,29 @@ class SystemSetting(Base):
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
     value: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class AgentEvent(Base):
+    """Append-only, high-resolution trace of everything the agents do.
+
+    One row per meaningful step or tool call (LLM call, chromium navigation,
+    GitHub push, Gmail send, ...). Powers the live activity view and cost/token
+    observability. Integer PK so the live stream can cursor cheaply by ``id``.
+    """
+
+    __tablename__ = "agent_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    trace_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    job_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    agent: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    tool: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False, default="info")  # start|end|info|error
+    title: Mapped[str] = mapped_column(String(1000), nullable=False)
+    detail: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    tokens_in: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_out: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    level: Mapped[str] = mapped_column(String(16), nullable=False, default="info")  # info|warn|error
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

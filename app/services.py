@@ -58,9 +58,9 @@ class CandidateProfileService:
 
 class SourceService:
     @staticmethod
-    def poll(session: Session, source: JobSource) -> dict[str, int]:
+    def poll(session: Session, source: JobSource) -> dict:
         discovered = fetch_board_jobs(source.provider, source.board_url)
-        created = 0
+        new_jobs: list[Job] = []
         updated = 0
         now = datetime.now(timezone.utc)
         for remote_job in discovered:
@@ -72,23 +72,23 @@ class SourceService:
                 job.metadata_json = remote_job.metadata
                 updated += 1
                 continue
-            session.add(
-                Job(
-                    source_id=source.id,
-                    provider_job_id=remote_job.provider_job_id,
-                    url=remote_job.url,
-                    company=remote_job.company,
-                    title=remote_job.title,
-                    location=remote_job.location,
-                    description=remote_job.description,
-                    metadata_json=remote_job.metadata,
-                    fingerprint=fingerprint,
-                )
+            job = Job(
+                source_id=source.id,
+                provider_job_id=remote_job.provider_job_id,
+                url=remote_job.url,
+                company=remote_job.company,
+                title=remote_job.title,
+                location=remote_job.location,
+                description=remote_job.description,
+                metadata_json=remote_job.metadata,
+                fingerprint=fingerprint,
             )
-            created += 1
+            session.add(job)
+            new_jobs.append(job)
         source.last_polled_at = now
         session.commit()
-        return {"fetched": len(discovered), "created": created, "updated": updated}
+        new_job_ids = [job.id for job in new_jobs]
+        return {"fetched": len(discovered), "created": len(new_job_ids), "updated": updated, "new_job_ids": new_job_ids}
 
 
 class AgentSpecService:

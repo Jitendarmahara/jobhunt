@@ -2,6 +2,9 @@ import os
 import unittest
 
 os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
+os.environ["MODEL_BASE_URL"] = ""
+os.environ["MODEL_NAME"] = ""
+os.environ["MODEL_API_KEY"] = ""
 
 from app.models import OutcomeStage
 from app.response_analyzer import _stage_from_reply

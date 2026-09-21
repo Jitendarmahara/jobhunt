@@ -1,12 +1,18 @@
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, StreamingResponse
 from prometheus_client import Counter, make_asgi_app
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+
+from app.config import get_settings
+from app.events import event_to_dict
+from app.models import AgentEvent, LifecycleState, SystemSetting
 
 from app.bootstrap import bootstrap_agent_specs
 from app.db import SessionLocal, get_session, initialize_database
@@ -15,11 +21,13 @@ from app.models import (
     AgentSpec,
     Application,
     ApplicationStatus,
+    Artifact,
     Assessment,
     Escalation,
     Job,
     JobSource,
     JobStatus,
+    JobTransition,
     Outcome,
     OutreachMessage,
 )
@@ -42,6 +50,7 @@ from app.schemas import (
     JobRead,
     JobSourceCreate,
     JobSourceRead,
+    JobTransitionRead,
     LivePolicyUpdate,
     OutcomeCreate,
     OutreachCreate,
@@ -104,6 +113,158 @@ def health(session: Session = Depends(get_session)) -> dict:
     return {"status": "ok", "service": "career-control-plane", "live_policy": policy_payload(session)}
 
 
+_temporal_client_cache: dict = {}
+
+
+async def _temporal_connected() -> bool:
+    import asyncio as _asyncio
+
+    from temporalio.client import Client
+
+    settings = get_settings()
+    client = _temporal_client_cache.get("client")
+    try:
+        if client is None:
+            client = await _asyncio.wait_for(
+                Client.connect(settings.temporal_address, namespace=settings.temporal_namespace), timeout=3
+            )
+            _temporal_client_cache["client"] = client
+        # Cheap round-trip to confirm the frontend is actually answering.
+        await _asyncio.wait_for(client.list_workflows().__anext__(), timeout=3)
+        return True
+    except StopAsyncIteration:
+        return True  # connected, just no workflows yet
+    except Exception:
+        _temporal_client_cache.pop("client", None)
+        return False
+
+
+@app.get("/api/system/status")
+async def system_status(session: Session = Depends(get_session)) -> dict:
+    settings = get_settings()
+
+    # Database
+    try:
+        session.execute(select(1))
+        database_ok = True
+    except Exception:
+        database_ok = False
+
+    # Worker liveness via heartbeat freshness
+    worker_ok = False
+    worker_last_seen = None
+    hb = session.get(SystemSetting, "worker_heartbeat")
+    if hb and hb.value.get("ts"):
+        worker_last_seen = hb.value["ts"]
+        try:
+            ts = datetime.fromisoformat(worker_last_seen)
+            worker_ok = (datetime.now(timezone.utc) - ts) < timedelta(seconds=40)
+        except ValueError:
+            worker_ok = False
+
+    temporal_ok = await _temporal_connected()
+
+    # Job pipeline counts, in plain buckets
+    def count_states(states: list[LifecycleState]) -> int:
+        return int(session.scalar(select(func.count()).select_from(Job).where(Job.lifecycle_state.in_(states))) or 0)
+
+    total_jobs = int(session.scalar(select(func.count()).select_from(Job)) or 0)
+    qualified_or_beyond = total_jobs - count_states([LifecycleState.DISCOVERED, LifecycleState.NORMALIZED, LifecycleState.QUALIFYING, LifecycleState.SKIPPED, LifecycleState.FAILED])
+    policy = PolicyService.get(session)
+
+    return {
+        "now": datetime.now(timezone.utc),
+        "components": {
+            "api": {"ok": True, "label": "Control plane (API)"},
+            "database": {"ok": database_ok, "label": "Database"},
+            "worker": {"ok": worker_ok, "label": "Autonomous worker", "last_seen": worker_last_seen},
+            "temporal": {"ok": temporal_ok, "label": "Workflow engine (Temporal)"},
+            "model": {
+                "ok": bool(settings.model_base_url and settings.model_name),
+                "label": "AI model",
+                "name": settings.model_name or None,
+            },
+        },
+        "live_actions": {
+            "enabled": policy.enabled,
+            "daily_application_limit": policy.daily_application_limit,
+            "daily_outreach_limit": policy.daily_outreach_limit,
+        },
+        "pipeline": {
+            "found": total_jobs,
+            "qualified": qualified_or_beyond,
+            "skipped": count_states([LifecycleState.SKIPPED]),
+            "resume_ready": count_states(
+                [LifecycleState.RESUME_GENERATED, LifecycleState.APPLICATION_READY, LifecycleState.APPLICATION_EXECUTING, LifecycleState.APPLICATION_VERIFIED, LifecycleState.APPLICATION_AMBIGUOUS, LifecycleState.TRACKING]
+            ),
+            "applied": count_states([LifecycleState.APPLICATION_VERIFIED, LifecycleState.TRACKING]),
+            "failed": count_states([LifecycleState.FAILED]),
+        },
+    }
+
+
+@app.get("/", response_class=HTMLResponse)
+def console() -> HTMLResponse:
+    html_path = Path(__file__).parent / "console.html"
+    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/live", response_class=HTMLResponse)
+def live_view() -> HTMLResponse:
+    html_path = Path(__file__).parent / "live.html"
+    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/api/events")
+def list_events(
+    after: int = Query(default=0, ge=0),
+    job_id: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=1000),
+    session: Session = Depends(get_session),
+) -> dict:
+    statement = select(AgentEvent).where(AgentEvent.id > after)
+    if job_id:
+        statement = statement.where(AgentEvent.job_id == job_id)
+    statement = statement.order_by(AgentEvent.id.asc()).limit(limit)
+    rows = session.scalars(statement).all()
+    cursor = rows[-1].id if rows else after
+    return {"cursor": cursor, "events": [event_to_dict(r) for r in rows]}
+
+
+@app.get("/api/events/stream")
+async def stream_events(after: int = Query(default=0, ge=0)) -> StreamingResponse:
+    """Server-Sent Events: streams new activity rows as they are written."""
+    import asyncio
+    import json
+
+    async def generate():
+        cursor = after
+        # Prime with the most recent events so a fresh page isn't blank.
+        if cursor == 0:
+            with SessionLocal() as session:
+                recent = list(
+                    session.scalars(select(AgentEvent).order_by(AgentEvent.id.desc()).limit(40)).all()
+                )[::-1]
+            for row in recent:
+                cursor = row.id
+                yield f"data: {json.dumps(event_to_dict(row))}\n\n"
+        while True:
+            try:
+                with SessionLocal() as session:
+                    rows = session.scalars(
+                        select(AgentEvent).where(AgentEvent.id > cursor).order_by(AgentEvent.id.asc()).limit(200)
+                    ).all()
+                for row in rows:
+                    cursor = row.id
+                    yield f"data: {json.dumps(event_to_dict(row))}\n\n"
+                yield ": keepalive\n\n"
+            except Exception:
+                yield ": error\n\n"
+            await asyncio.sleep(0.7)
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
 @app.get("/api/dashboard")
 def dashboard(session: Session = Depends(get_session)) -> dict:
     def count(model) -> int:
@@ -115,6 +276,10 @@ def dashboard(session: Session = Depends(get_session)) -> dict:
     agent_population: dict[str, dict[str, int]] = {}
     for domain, spec_status, total in agent_rows:
         agent_population.setdefault(domain.value, {})[spec_status.value] = total
+    recent_jobs = session.scalars(select(Job).order_by(Job.first_seen_at.desc()).limit(8)).all()
+    recent_escalations = session.scalars(
+        select(Escalation).where(Escalation.status == "open").order_by(Escalation.created_at.desc()).limit(8)
+    ).all()
     return {
         "now": datetime.now(timezone.utc),
         "live_policy": policy_payload(session),
@@ -126,8 +291,28 @@ def dashboard(session: Session = Depends(get_session)) -> dict:
             "open_escalations": int(session.scalar(select(func.count()).select_from(Escalation).where(Escalation.status == "open")) or 0),
         },
         "agent_population": agent_population,
-        "recent_jobs": session.scalars(select(Job).order_by(Job.first_seen_at.desc()).limit(8)).all(),
-        "recent_escalations": session.scalars(select(Escalation).where(Escalation.status == "open").order_by(Escalation.created_at.desc()).limit(8)).all(),
+        "recent_jobs": [
+            {
+                "id": job.id,
+                "company": job.company,
+                "title": job.title,
+                "location": job.location,
+                "status": job.status.value,
+                "lifecycle_state": job.lifecycle_state.value,
+                "url": job.url,
+                "first_seen_at": job.first_seen_at,
+            }
+            for job in recent_jobs
+        ],
+        "recent_escalations": [
+            {
+                "id": esc.id,
+                "category": esc.category,
+                "question": esc.question,
+                "created_at": esc.created_at,
+            }
+            for esc in recent_escalations
+        ],
     }
 
 
@@ -183,6 +368,90 @@ def list_jobs(
     if job_status:
         statement = statement.where(Job.status == job_status)
     return session.scalars(statement).all()
+
+
+@app.post("/api/sources/{source_id}/discover")
+async def discover_source(source_id: str, session: Session = Depends(get_session)):
+    """Autonomous discovery: poll the source and fan out a lifecycle per new job."""
+    source = session.get(JobSource, source_id)
+    if not source:
+        raise not_found("Job source")
+    if not source.enabled:
+        raise HTTPException(status_code=409, detail="This source is disabled.")
+    try:
+        from app.temporal_client import start_discovery
+
+        workflow_id = await start_discovery(source_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not start discovery workflow: {exc}") from exc
+    return {"workflow_id": workflow_id, "status": "started"}
+
+
+@app.post("/api/jobs/{job_id}/lifecycle")
+async def start_lifecycle(job_id: str, session: Session = Depends(get_session)):
+    """Start (or idempotently reattach to) the autonomous lifecycle for one job."""
+    if not session.get(Job, job_id):
+        raise not_found("Job")
+    try:
+        from app.temporal_client import start_job_lifecycle
+
+        workflow_id = await start_job_lifecycle(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not start lifecycle workflow: {exc}") from exc
+    return {"workflow_id": workflow_id, "status": "started"}
+
+
+@app.get("/api/jobs/{job_id}/transitions", response_model=list[JobTransitionRead])
+def list_transitions(job_id: str, session: Session = Depends(get_session)):
+    if not session.get(Job, job_id):
+        raise not_found("Job")
+    return session.scalars(
+        select(JobTransition).where(JobTransition.job_id == job_id).order_by(JobTransition.created_at.asc())
+    ).all()
+
+
+@app.get("/api/jobs/{job_id}/detail")
+def job_detail(job_id: str, session: Session = Depends(get_session)) -> dict:
+    """Everything the pipeline produced for one job — powers the flow detail view."""
+    job = session.get(Job, job_id)
+    if not job:
+        raise not_found("Job")
+    assessment = session.scalar(
+        select(Assessment).where(Assessment.job_id == job_id).order_by(Assessment.created_at.desc()).limit(1)
+    )
+    artifacts = {a.kind: a for a in session.scalars(select(Artifact).where(Artifact.job_id == job_id)).all()}
+    application = session.scalar(
+        select(Application).where(Application.job_id == job_id).order_by(Application.created_at.desc()).limit(1)
+    )
+    resume = artifacts.get("tailored_resume_pdf")
+    transitions = session.scalars(
+        select(JobTransition).where(JobTransition.job_id == job_id).order_by(JobTransition.created_at.asc())
+    ).all()
+    return {
+        "job": {
+            "id": job.id,
+            "company": job.company,
+            "title": job.title,
+            "location": job.location,
+            "url": job.url,
+            "status": job.status.value,
+            "lifecycle_state": job.lifecycle_state.value,
+        },
+        "fit": None if not assessment else {
+            "score": assessment.relevance_score,
+            "rationale": assessment.rationale,
+            "evidence": assessment.evidence,
+        },
+        "company_research": artifacts["company_research"].provenance if "company_research" in artifacts else None,
+        "resume_gaps": artifacts["resume_gaps"].provenance if "resume_gaps" in artifacts else None,
+        "contacts": artifacts["contacts"].provenance if "contacts" in artifacts else None,
+        "resume": None if not resume else {"uri": resume.uri, "created_at": resume.created_at.isoformat()},
+        "application": None if not application else {"status": application.status.value, "evidence_uri": application.browser_evidence_uri},
+        "transitions": [
+            {"to_state": t.to_state.value, "actor": t.actor, "reason": t.reason, "at": t.created_at.isoformat()}
+            for t in transitions
+        ],
+    }
 
 
 @app.post("/api/jobs/{job_id}/assessments", response_model=AssessmentRead, status_code=status.HTTP_201_CREATED)

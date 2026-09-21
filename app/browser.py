@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import get_settings
+from app.events import emit
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ class PlaywrightApplicationBrowser:
     async def inspect_and_submit(self, application_url: str, candidate_facts: dict[str, Any], application_id: str) -> BrowserResult:
         settings = get_settings()
         if not settings.browser_enabled:
+            emit("Chromium is disabled (BROWSER_ENABLED=false) — skipping real submit", tool="chromium", level="warn")
             return BrowserResult(status="unavailable", detail="BROWSER_ENABLED is false")
         # Lazy import permits control-plane/API containers to stay browser-free.
         from playwright.async_api import async_playwright
@@ -45,13 +47,16 @@ class PlaywrightApplicationBrowser:
         artifact_dir.mkdir(parents=True, exist_ok=True)
         screenshot = artifact_dir / f"application-{application_id}.png"
         answers = _answer_map(candidate_facts)
+        emit("Chromium: launching headless browser", tool="chromium", phase="start")
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
             context = await browser.new_context()
             page = await context.new_page()
             try:
+                emit(f"Chromium: navigating to {application_url}", tool="chromium", detail={"url": application_url})
                 await page.goto(application_url, wait_until="domcontentloaded", timeout=45_000)
                 await page.screenshot(path=str(screenshot), full_page=True)
+                emit("Chromium: page loaded, screenshot captured", tool="chromium", detail={"screenshot": str(screenshot)})
                 fields = await page.locator("input, textarea, select").evaluate_all(
                     """els => els.map((el, index) => ({
                       index, name: el.name, type: el.type, required: el.required,
@@ -75,7 +80,9 @@ class PlaywrightApplicationBrowser:
                         continue
                     locator = page.locator("input, textarea, select").nth(field["index"])
                     await locator.fill(value)
+                    emit(f"Chromium: filled field '{key or field.get('name')}'", tool="chromium")
                 if unknown:
+                    emit(f"Chromium: {len(unknown)} required field(s) have no factual answer — escalating (won't guess)", tool="chromium", level="warn", detail={"fields": unknown})
                     return BrowserResult(status="needs_escalation", evidence_uri=f"file://{screenshot}", unknown_questions=tuple(unknown))
 
                 resume_path = candidate_facts.get("resume_path")
@@ -90,13 +97,16 @@ class PlaywrightApplicationBrowser:
                 submit = page.locator('button[type="submit"], input[type="submit"]').first
                 if await submit.count() == 0:
                     return BrowserResult(status="needs_escalation", evidence_uri=f"file://{screenshot}", unknown_questions=("Could not identify a submit control",))
+                emit("Chromium: clicking Submit", tool="chromium")
                 await submit.click()
                 await page.wait_for_timeout(1_500)
                 await page.screenshot(path=str(screenshot), full_page=True)
                 body = (await page.locator("body").inner_text()).lower()
                 confirmation_words = ("thank you", "application submitted", "application received")
                 if not any(word in body for word in confirmation_words):
+                    emit("Chromium: could not verify a confirmation message — marking for review (no blind retry)", tool="chromium", level="warn")
                     return BrowserResult(status="needs_escalation", evidence_uri=f"file://{screenshot}", unknown_questions=("Submission confirmation could not be verified",))
+                emit("Chromium: submission confirmed ✓", tool="chromium")
                 return BrowserResult(status="submitted", evidence_uri=f"file://{screenshot}")
             finally:
                 await context.close()
