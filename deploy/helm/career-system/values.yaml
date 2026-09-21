@@ -1,0 +1,47 @@
+imagePullSecrets: []
+
+api:
+  image: career-system-api:latest
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 8000
+
+worker:
+  image: career-system-worker:latest
+  replicas: 1
+
+dashboard:
+  image: career-system-dashboard:latest
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 80
+
+# Non-secret environment. Use a Kubernetes Secret for credentials and tokens.
+config:
+  DATABASE_URL: postgresql+psycopg://career:career@postgres:5432/career
+  REDIS_URL: redis://redis:6379/0
+  OBJECT_STORE_ENDPOINT: http://minio:9000
+  TEMPORAL_ADDRESS: temporal:7233
+  TEMPORAL_NAMESPACE: default
+  TEMPORAL_TASK_QUEUE: career-system
+  LIVE_ACTIONS_ENABLED: "false"
+  DAILY_APPLICATION_LIMIT: "0"
+  DAILY_OUTREACH_LIMIT: "0"
+  BROWSER_ENABLED: "false"
+
+# Create this Secret outside the chart. It may hold MODEL_API_KEY, Gmail OAuth
+# values, GITHUB_TOKEN, and object-store credentials.
+existingSecret: ""
+
+resources:
+  api:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  worker:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: "2", memory: 3Gi }
+  dashboard:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 128Mi }

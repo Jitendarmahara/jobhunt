@@ -1,0 +1,11 @@
+.git
+.env
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+dashboard/node_modules
+dashboard/dist
+data
+tests

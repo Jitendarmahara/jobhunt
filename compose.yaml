@@ -1,0 +1,114 @@
+name: career-system
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: career
+      POSTGRES_USER: career
+      POSTGRES_PASSWORD: career
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U career -d career"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+
+  minio:
+    image: minio/minio:RELEASE.2024-10-13T13-34-11Z
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: career
+      POSTGRES_PWD: career
+    ports:
+      - "7233:7233"
+
+  temporal-ui:
+    image: temporalio/ui:2.26.2
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:5173
+    ports:
+      - "8081:8080"
+
+  api:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://career:career@postgres:5432/career}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      OBJECT_STORE_ENDPOINT: ${OBJECT_STORE_ENDPOINT:-http://minio:9000}
+      TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
+      LIVE_ACTIONS_ENABLED: ${LIVE_ACTIONS_ENABLED:-false}
+      DAILY_APPLICATION_LIMIT: ${DAILY_APPLICATION_LIMIT:-0}
+      DAILY_OUTREACH_LIMIT: ${DAILY_OUTREACH_LIMIT:-0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://career:career@postgres:5432/career}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      OBJECT_STORE_ENDPOINT: ${OBJECT_STORE_ENDPOINT:-http://minio:9000}
+      TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
+      LIVE_ACTIONS_ENABLED: ${LIVE_ACTIONS_ENABLED:-false}
+      DAILY_APPLICATION_LIMIT: ${DAILY_APPLICATION_LIMIT:-0}
+      DAILY_OUTREACH_LIMIT: ${DAILY_OUTREACH_LIMIT:-0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+
+  dashboard:
+    build: ./dashboard
+    depends_on:
+      - api
+    environment:
+      API_UPSTREAM: api
+    ports:
+      - "5173:80"
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
