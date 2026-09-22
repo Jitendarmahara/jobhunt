@@ -5,6 +5,7 @@ from sqlalchemy import select
 from temporalio import activity
 
 from app.browser import PlaywrightApplicationBrowser
+from app.config import get_settings
 from app.db import SessionLocal
 from app.events import emit, set_context, step
 from app.integrations.gmail import GmailClient, GmailConfigurationError
@@ -22,6 +23,7 @@ from app.models import (
     OutreachMessage,
     SpecStatus,
 )
+from app.projects import ProjectService
 from app.qualification import QualificationService
 from app.research import WebResearcher, analyze_resume_gaps, research_company, suggest_people
 from app.resumes import ResumeService
@@ -306,6 +308,93 @@ async def analyze_gaps_activity(job_id: str) -> dict:
 
 
 @activity.defn
+async def build_project_activity(job_id: str) -> dict:
+    """Project Builder: scaffold a truthful demonstrator project for a material gap.
+
+    Only runs when ``analyze_gaps_activity`` recommended one (``project_recommended``
+    on the saved ``resume_gaps`` artifact). Walks the durable
+    PROJECT_PLANNING -> PROJECT_BUILDING -> PROJECT_TESTING -> PROJECT_REVIEW ->
+    PROJECT_PUBLISHED -> EVIDENCE_UPDATED states using the real, file-backed
+    scaffold in ``app/projects.py`` — never fabricated project history. Publishing
+    to a private GitHub repository stays behind ``GITHUB_TOKEN`` *and* live
+    actions being armed; otherwise the artifact is a local file scaffold only.
+    Idempotent: a repeat call reuses the existing ``project_scaffold`` artifact.
+    """
+    _begin("project_builder", job_id)
+    with SessionLocal() as session:
+        job = session.get(Job, job_id)
+        if not job:
+            return {"status": "failed", "reason": "job not found"}
+        gaps_artifact = session.scalar(select(Artifact).where(Artifact.job_id == job_id, Artifact.kind == "resume_gaps"))
+        gaps = gaps_artifact.provenance if gaps_artifact else {}
+        if not gaps.get("project_recommended"):
+            return {"status": "skipped", "reason": "no project recommended"}
+
+        existing = session.scalar(select(Artifact).where(Artifact.job_id == job_id, Artifact.kind == "project_scaffold"))
+        if existing:
+            record_transition(
+                session, job, LifecycleState.EVIDENCE_UPDATED, actor="lifecycle",
+                idempotency_key=f"{job_id}:evidence_updated",
+            )
+            return {"status": "ok", "cached": True, "artifact_id": existing.id, "uri": existing.uri}
+
+        spec = _champion(session, Domain.RESPONSE_BUILDER)
+        if not spec:
+            record_transition(session, job, LifecycleState.FAILED, actor="lifecycle", reason="no response_builder champion")
+            return {"status": "failed", "reason": "no response_builder champion"}
+
+        idea = gaps.get("project_idea") or "a small demonstrator closing the identified gap"
+        record_transition(
+            session, job, LifecycleState.PROJECT_PLANNING, actor="project_builder",
+            reason=idea, idempotency_key=f"{job_id}:project_planning",
+        )
+        emit(f"Project Builder: planning demonstrator — {idea}", detail={"gaps": gaps.get("gaps")})
+
+        record_transition(
+            session, job, LifecycleState.PROJECT_BUILDING, actor="project_builder",
+            idempotency_key=f"{job_id}:project_building",
+        )
+        settings = get_settings()
+        live_policy = PolicyService.get(session)
+        publish = bool(settings.github_token) and live_policy.enabled
+        try:
+            with step("Project Builder: scaffolding demonstrator repository (real files)", tool="filesystem"):
+                artifact = ProjectService().scaffold(session, job, spec, publish, live_policy)
+        except PolicyBlockedError as exc:
+            record_transition(session, job, LifecycleState.FAILED, actor="project_builder", reason=str(exc))
+            emit(f"Project scaffold blocked: {exc}", level="error", phase="error")
+            return {"status": "failed", "reason": str(exc)}
+
+        record_transition(
+            session, job, LifecycleState.PROJECT_TESTING, actor="project_builder",
+            idempotency_key=f"{job_id}:project_testing",
+        )
+        emit("Project Builder: scaffold includes a real test suite + CI workflow", tool="filesystem", detail={"uri": artifact.uri})
+
+        record_transition(
+            session, job, LifecycleState.PROJECT_REVIEW, actor="project_builder",
+            idempotency_key=f"{job_id}:project_review",
+        )
+
+        record_transition(
+            session, job, LifecycleState.PROJECT_PUBLISHED, actor="project_builder",
+            reason="published_private" if publish else "local_only",
+            idempotency_key=f"{job_id}:project_published",
+        )
+        emit(
+            "Project Builder: scaffold ready"
+            + (" and pushed to a private GitHub repo" if publish else " (local only — GitHub push needs GITHUB_TOKEN + live actions)"),
+            detail={"uri": artifact.uri, "artifact_id": artifact.id},
+        )
+
+        record_transition(
+            session, job, LifecycleState.EVIDENCE_UPDATED, actor="project_builder",
+            idempotency_key=f"{job_id}:evidence_updated",
+        )
+        return {"status": "ok", "artifact_id": artifact.id, "published": publish, "uri": artifact.uri}
+
+
+@activity.defn
 async def find_people_activity(job_id: str) -> dict:
     """Response Builder: suggest people to contact + outreach angle (AI). Annotation only."""
     _begin("response_builder", job_id)
@@ -328,11 +417,13 @@ async def find_people_activity(job_id: str) -> dict:
 
 @activity.defn
 async def match_candidate_activity(job_id: str) -> dict:
-    """v1: candidate/evidence matching is a pass-through decision point.
+    """Candidate/evidence matching is a pass-through decision point.
 
-    It records the CANDIDATE_MATCHED -> EVIDENCE_ANALYZED transitions and, for
-    v1, always reports evidence sufficient (the project-generation branch is a
-    designed hook implemented in a later phase). No facts are invented.
+    It records the CANDIDATE_MATCHED -> EVIDENCE_ANALYZED transitions. Whether a
+    demonstrator project is warranted is decided later, from the actual gap
+    analysis (see ``analyze_gaps_activity`` / ``build_project_activity``), since
+    that is the step that produces real evidence of a material gap. No facts are
+    invented here.
     """
     _begin("response_builder", job_id)
     with SessionLocal() as session:
@@ -346,8 +437,7 @@ async def match_candidate_activity(job_id: str) -> dict:
         record_transition(
             session, job, LifecycleState.EVIDENCE_ANALYZED, actor="lifecycle", idempotency_key=f"{job_id}:evidence"
         )
-        emit("Evidence sufficient — no project needed (v1)", detail={"note": "project-builder branch arrives in a later phase"})
-        return {"status": "ok", "evidence_sufficient": True}
+        return {"status": "ok"}
 
 
 @activity.defn

@@ -445,6 +445,10 @@ def job_detail(job_id: str, session: Session = Depends(get_session)) -> dict:
         "company_research": artifacts["company_research"].provenance if "company_research" in artifacts else None,
         "resume_gaps": artifacts["resume_gaps"].provenance if "resume_gaps" in artifacts else None,
         "contacts": artifacts["contacts"].provenance if "contacts" in artifacts else None,
+        "project": None if "project_scaffold" not in artifacts else {
+            "uri": artifacts["project_scaffold"].uri,
+            "provenance": artifacts["project_scaffold"].provenance,
+        },
         "resume": None if not resume else {"uri": resume.uri, "created_at": resume.created_at.isoformat()},
         "application": None if not application else {"status": application.status.value, "evidence_uri": application.browser_evidence_uri},
         "transitions": [
