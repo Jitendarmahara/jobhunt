@@ -5,6 +5,7 @@ from sqlalchemy import select
 from temporalio import activity
 
 from app.browser import PlaywrightApplicationBrowser
+from app.config import get_settings
 from app.db import SessionLocal
 from app.events import emit, set_context, step
 from app.integrations.gmail import GmailClient, GmailConfigurationError
@@ -22,6 +23,7 @@ from app.models import (
     OutreachMessage,
     SpecStatus,
 )
+from app.projects import ProjectService
 from app.qualification import QualificationService
 from app.research import WebResearcher, analyze_resume_gaps, research_company, suggest_people
 from app.resumes import ResumeService
@@ -306,6 +308,93 @@ async def analyze_gaps_activity(job_id: str) -> dict:
 
 
 @activity.defn
+async def build_project_activity(job_id: str) -> dict:
+    """Project Builder: scaffold a truthful demonstrator project for a material gap.
+
+    Only runs when ``analyze_gaps_activity`` recommended one (``project_recommended``
+    on the saved ``resume_gaps`` artifact). Walks the durable
+    PROJECT_PLANNING -> PROJECT_BUILDING -> PROJECT_TESTING -> PROJECT_REVIEW ->
+    PROJECT_PUBLISHED -> EVIDENCE_UPDATED states using the real, file-backed
+    scaffold in ``app/projects.py`` — never fabricated project history. Publishing
+    to a private GitHub repository stays behind ``GITHUB_TOKEN`` *and* live
+    actions being armed; otherwise the artifact is a local file scaffold only.
+    Idempotent: a repeat call reuses the existing ``project_scaffold`` artifact.
+    """
+    _begin("project_builder", job_id)
+    with SessionLocal() as session:
+        job = session.get(Job, job_id)
+        if not job:
+            return {"status": "failed", "reason": "job not found"}
+        gaps_artifact = session.scalar(select(Artifact).where(Artifact.job_id == job_id, Artifact.kind == "resume_gaps"))
+        gaps = gaps_artifact.provenance if gaps_artifact else {}
+        if not gaps.get("project_recommended"):
+            return {"status": "skipped", "reason": "no project recommended"}
+
+        existing = session.scalar(select(Artifact).where(Artifact.job_id == job_id, Artifact.kind == "project_scaffold"))
+        if existing:
+            record_transition(
+                session, job, LifecycleState.EVIDENCE_UPDATED, actor="lifecycle",
+                idempotency_key=f"{job_id}:evidence_updated",
+            )
+            return {"status": "ok", "cached": True, "artifact_id": existing.id, "uri": existing.uri}
+
+        spec = _champion(session, Domain.RESPONSE_BUILDER)
+        if not spec:
+            record_transition(session, job, LifecycleState.FAILED, actor="lifecycle", reason="no response_builder champion")
+            return {"status": "failed", "reason": "no response_builder champion"}
+
+        idea = gaps.get("project_idea") or "a small demonstrator closing the identified gap"
+        record_transition(
+            session, job, LifecycleState.PROJECT_PLANNING, actor="project_builder",
+            reason=idea, idempotency_key=f"{job_id}:project_planning",
+        )
+        emit(f"Project Builder: planning demonstrator — {idea}", detail={"gaps": gaps.get("gaps")})
+
+        record_transition(
+            session, job, LifecycleState.PROJECT_BUILDING, actor="project_builder",
+            idempotency_key=f"{job_id}:project_building",
+        )
+        settings = get_settings()
+        live_policy = PolicyService.get(session)
+        publish = bool(settings.github_token) and live_policy.enabled
+        try:
+            with step("Project Builder: scaffolding demonstrator repository (real files)", tool="filesystem"):
+                artifact = ProjectService().scaffold(session, job, spec, publish, live_policy)
+        except PolicyBlockedError as exc:
+            record_transition(session, job, LifecycleState.FAILED, actor="project_builder", reason=str(exc))
+            emit(f"Project scaffold blocked: {exc}", level="error", phase="error")
+            return {"status": "failed", "reason": str(exc)}
+
+        record_transition(
+            session, job, LifecycleState.PROJECT_TESTING, actor="project_builder",
+            idempotency_key=f"{job_id}:project_testing",
+        )
+        emit("Project Builder: scaffold includes a real test suite + CI workflow", tool="filesystem", detail={"uri": artifact.uri})
+
+        record_transition(
+            session, job, LifecycleState.PROJECT_REVIEW, actor="project_builder",
+            idempotency_key=f"{job_id}:project_review",
+        )
+
+        record_transition(
+            session, job, LifecycleState.PROJECT_PUBLISHED, actor="project_builder",
+            reason="published_private" if publish else "local_only",
+            idempotency_key=f"{job_id}:project_published",
+        )
+        emit(
+            "Project Builder: scaffold ready"
+            + (" and pushed to a private GitHub repo" if publish else " (local only — GitHub push needs GITHUB_TOKEN + live actions)"),
+            detail={"uri": artifact.uri, "artifact_id": artifact.id},
+        )
+
+        record_transition(
+            session, job, LifecycleState.EVIDENCE_UPDATED, actor="project_builder",
+            idempotency_key=f"{job_id}:evidence_updated",
+        )
+        return {"status": "ok", "artifact_id": artifact.id, "published": publish, "uri": artifact.uri}
+
+
+@activity.defn
 async def find_people_activity(job_id: str) -> dict:
     """Response Builder: suggest people to contact + outreach angle (AI). Annotation only."""
     _begin("response_builder", job_id)
@@ -328,11 +417,13 @@ async def find_people_activity(job_id: str) -> dict:
 
 @activity.defn
 async def match_candidate_activity(job_id: str) -> dict:
-    """v1: candidate/evidence matching is a pass-through decision point.
+    """Candidate/evidence matching is a pass-through decision point.
 
-    It records the CANDIDATE_MATCHED -> EVIDENCE_ANALYZED transitions and, for
-    v1, always reports evidence sufficient (the project-generation branch is a
-    designed hook implemented in a later phase). No facts are invented.
+    It records the CANDIDATE_MATCHED -> EVIDENCE_ANALYZED transitions. Whether a
+    demonstrator project is warranted is decided later, from the actual gap
+    analysis (see ``analyze_gaps_activity`` / ``build_project_activity``), since
+    that is the step that produces real evidence of a material gap. No facts are
+    invented here.
     """
     _begin("response_builder", job_id)
     with SessionLocal() as session:
@@ -346,8 +437,7 @@ async def match_candidate_activity(job_id: str) -> dict:
         record_transition(
             session, job, LifecycleState.EVIDENCE_ANALYZED, actor="lifecycle", idempotency_key=f"{job_id}:evidence"
         )
-        emit("Evidence sufficient — no project needed (v1)", detail={"note": "project-builder branch arrives in a later phase"})
-        return {"status": "ok", "evidence_sufficient": True}
+        return {"status": "ok"}
 
 
 @activity.defn
@@ -441,6 +531,76 @@ async def create_application_activity(job_id: str, resume_artifact_id: str | Non
 
 
 @activity.defn
+async def prepare_outreach_activity(job_id: str) -> dict:
+    """Job Applier: draft an outreach message once the application is verified.
+
+    Uses the ``contacts`` artifact from the Response Builder (target roles +
+    outreach angle — never fabricated names or emails). The message is always
+    only *drafted*: the recipient is left as an explicit human-review
+    placeholder because the system never invents a real contact's email, so an
+    autonomous send is never actually attempted here regardless of policy.
+    ``attempt_send`` in the result reflects whether the outreach policy (live
+    actions armed + a positive daily limit) *would* currently permit a send —
+    off by default — so the operator can see readiness without anything being
+    sent. A human (or a future contact-resolution step) supplies a verified
+    recipient and sends via the existing outreach endpoint/workflow.
+    """
+    _begin("job_applier", job_id)
+    with SessionLocal() as session:
+        job = session.get(Job, job_id)
+        if not job:
+            return {"status": "failed", "reason": "job not found"}
+
+        existing = session.scalar(select(OutreachMessage).where(OutreachMessage.job_id == job_id))
+        if existing:
+            record_transition(session, job, LifecycleState.TRACKING, actor="lifecycle", idempotency_key=f"{job_id}:tracking")
+            return {"status": "ok", "cached": True, "outreach_id": existing.id}
+
+        contacts_artifact = session.scalar(select(Artifact).where(Artifact.job_id == job_id, Artifact.kind == "contacts"))
+        contacts = contacts_artifact.provenance if contacts_artifact else {}
+        target_roles = contacts.get("target_roles") or []
+        profile = CandidateProfileService.approved(session)
+        spec = _champion(session, Domain.APPLICATION)
+        if not target_roles or not profile or not spec:
+            emit("Job Applier: no contact suggested — skipping outreach", level="info")
+            record_transition(session, job, LifecycleState.TRACKING, actor="lifecycle", idempotency_key=f"{job_id}:tracking")
+            return {"status": "skipped", "reason": "no contacts suggested or missing profile/champion"}
+
+        try:
+            enforce_outreach_policy(session, PolicyService.get(session))
+            attempt_send = True
+        except PolicyBlockedError as exc:
+            attempt_send = False
+            emit(f"Outreach is OFF by policy (safe by default): {exc}", level="warn")
+
+        record_transition(
+            session, job, LifecycleState.OUTREACH_EXECUTING, actor="job_applier",
+            idempotency_key=f"{job_id}:outreach_executing",
+        )
+
+        angle = contacts.get("outreach_angle") or f"Following up on my application for {job.title} at {job.company}."
+        name = profile.facts.get("name", "the candidate")
+        message = OutreachMessage(
+            job_id=job_id,
+            agent_spec_id=spec.id,
+            recipient="pending-human-verification",
+            subject=f"Following up: {job.title} application at {job.company}",
+            body=f"Hi,\n\n{angle}\n\nBest,\n{name}",
+            status="draft",
+        )
+        session.add(message)
+        session.commit()
+        session.refresh(message)
+        emit(
+            f"Job Applier: drafted outreach to a {target_roles[0]}"
+            + ("" if attempt_send else " (send held — no recipient verified / policy off)"),
+            detail={"outreach_id": message.id, "target_roles": target_roles, "attempt_send": attempt_send},
+        )
+        record_transition(session, job, LifecycleState.TRACKING, actor="lifecycle", idempotency_key=f"{job_id}:tracking")
+        return {"status": "ok", "outreach_id": message.id, "attempt_send": attempt_send}
+
+
+@activity.defn
 async def lifecycle_submit_application_activity(job_id: str, application_id: str) -> dict:
     """Execute the external submission with an ambiguous-outcome guard.
 
@@ -469,15 +629,19 @@ async def lifecycle_submit_application_activity(job_id: str, application_id: str
 
     result = await execute_application_browser_activity(application_id)
 
+    outcome = result.get("status")
     with SessionLocal() as session:
         job = session.get(Job, job_id)
-        outcome = result.get("status")
         if outcome == "submitted":
             record_transition(session, job, LifecycleState.APPLICATION_VERIFIED, actor="browser")
-            record_transition(session, job, LifecycleState.TRACKING, actor="lifecycle")
         elif outcome == "needs_escalation":
             record_transition(session, job, LifecycleState.APPLICATION_AMBIGUOUS, actor="browser", reason=outcome)
             record_transition(session, job, LifecycleState.TRACKING, actor="lifecycle")
         else:
             record_transition(session, job, LifecycleState.FAILED, actor="browser", reason=str(result))
-        return result
+
+    if outcome == "submitted":
+        # Application verified: the Job Applier now (safely) drafts outreach —
+        # see prepare_outreach_activity for why a send is never auto-triggered.
+        await prepare_outreach_activity(job_id)
+    return result

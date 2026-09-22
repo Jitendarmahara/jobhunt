@@ -7,6 +7,7 @@ from temporalio.worker import Worker
 
 from app.activities import (
     analyze_gaps_activity,
+    build_project_activity,
     create_application_activity,
     execute_application_browser_activity,
     find_people_activity,
@@ -17,6 +18,7 @@ from app.activities import (
     match_candidate_activity,
     poll_source_activity,
     prepare_application_activity,
+    prepare_outreach_activity,
     qualify_job_activity,
     research_company_activity,
     send_outreach_activity,
@@ -82,9 +84,11 @@ async def run() -> None:
             research_company_activity,
             analyze_gaps_activity,
             find_people_activity,
+            build_project_activity,
             match_candidate_activity,
             generate_resume_activity,
             create_application_activity,
+            prepare_outreach_activity,
             lifecycle_submit_application_activity,
         ],
     )

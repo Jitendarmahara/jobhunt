@@ -12,6 +12,8 @@ class GmailConfigurationError(RuntimeError):
 
 
 class GmailClient:
+    name = "gmail"
+
     def _access_token(self) -> str:
         settings = get_settings()
         if not all((settings.gmail_client_id, settings.gmail_client_secret, settings.gmail_refresh_token)):

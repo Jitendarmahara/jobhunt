@@ -9,36 +9,59 @@
     --bg:#f5f6f8; --card:#fff; --ink:#1a1d24; --muted:#5b6472; --line:#e4e7ec;
     --green:#0f9d58; --greenbg:#e6f4ea; --blue:#1a73e8; --bluebg:#e8f0fe;
     --grey:#c4c9d2; --amber:#e37400; --amberbg:#fef3e2; --red:#d93025; --redbg:#fce8e6;
-    --purple:#8b3dff; --shadow:0 1px 3px rgba(16,24,40,.08),0 1px 2px rgba(16,24,40,.06);
+    --purple:#8b3dff; --purplebg:#f3ebff; --shadow:0 1px 3px rgba(16,24,40,.08),0 1px 2px rgba(16,24,40,.06);
   }
   @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
     --bg:#0f1115;--card:#171a21;--ink:#e7eaf0;--muted:#9aa4b2;--line:#252a33;
-    --greenbg:#10281a;--bluebg:#122036;--amberbg:#2a1f0e;--redbg:#2a1412;--grey:#3a4150;}}
+    --greenbg:#10281a;--bluebg:#122036;--amberbg:#2a1f0e;--redbg:#2a1412;--grey:#3a4150;--purplebg:#211a33;}}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
-  .wrap{max-width:1000px;margin:0 auto;padding:22px 16px 64px}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px 16px 64px}
   h1{font-size:23px;margin:0 0 4px}
   .sub{color:var(--muted);margin:0 0 18px}
   a{color:var(--blue)}
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px;box-shadow:var(--shadow)}
-  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 12px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 12px;display:flex;align-items:center;justify-content:space-between;gap:8px}
   .row{display:flex;flex-wrap:wrap;gap:9px}
   .chip{display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:10px;background:var(--bg);border:1px solid var(--line);font-weight:600;font-size:13px}
+  .chip.click{cursor:pointer}.chip.click:hover{border-color:var(--blue);color:var(--blue)}
   .dot{width:9px;height:9px;border-radius:50%;background:var(--grey);flex:none}
   .dot.ok{background:var(--green)}.dot.bad{background:var(--red)}.dot.warn{background:var(--amber)}
   .banner{padding:11px 13px;border-radius:10px;font-weight:600;font-size:13.5px;margin-bottom:16px}
-  /* flow strip */
-  .flow{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}
-  .stage{flex:1;min-width:104px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:11px 10px;position:relative}
-  .stage .sn{font-size:11px;color:var(--muted)}
-  .stage .sl{font-weight:700;font-size:13px;margin:2px 0 8px;line-height:1.25}
-  .stage .cnt{font-size:22px;font-weight:800;line-height:1}
-  .stage .tool{font-size:10.5px;color:var(--muted);margin-top:6px}
-  .stage.active{border-color:var(--blue);box-shadow:0 0 0 2px var(--bluebg)}
-  .stage.active .cnt{color:var(--blue)}
-  .stage .live{position:absolute;top:8px;right:9px;width:8px;height:8px;border-radius:50%;background:var(--blue);animation:pp 1.4s infinite}
-  @keyframes pp{0%{box-shadow:0 0 0 0 rgba(26,115,232,.5)}70%{box-shadow:0 0 0 6px rgba(26,115,232,0)}100%{box-shadow:0 0 0 0 rgba(26,115,232,0)}}
-  .arrow{align-self:center;color:var(--muted);flex:none}
+  /* diagram */
+  #diagram{width:100%;height:auto;display:block}
+  .node-box{cursor:pointer}
+  .node-box:hover .node-rect{stroke:var(--blue);stroke-width:2}
+  .node-rect{fill:var(--card);stroke:var(--line);stroke-width:1.5;transition:stroke .15s}
+  .node-box.active .node-rect{stroke:var(--blue);stroke-width:2.5}
+  .node-box.selected .node-rect{fill:var(--bluebg)}
+  .node-label{font:700 13.5px system-ui,sans-serif;fill:var(--ink)}
+  .node-sub{font:11px system-ui,sans-serif;fill:var(--muted)}
+  .node-count{font:800 24px system-ui,sans-serif;fill:var(--muted)}
+  .node-count.active{fill:var(--blue)}
+  .node-badge{font:700 10px system-ui,sans-serif;fill:#fff}
+  .edge-line{fill:none;stroke:var(--line);stroke-width:1.6}
+  .edge-line.on{stroke:var(--blue);stroke-width:2.2}
+  .edge-line.branch{stroke-dasharray:5 4}
+  .edge-label{font:10.5px system-ui,sans-serif;fill:var(--muted)}
+  .pulse-ring{fill:none;stroke:var(--blue);stroke-width:2;opacity:0;transform-origin:center}
+  .node-box.active .pulse-ring{animation:ring 1.8s infinite}
+  @keyframes ring{0%{opacity:.55;transform:scale(1)}100%{opacity:0;transform:scale(1.18)}}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--muted);margin-top:10px}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+  .legend i.solid{background:var(--line)}
+  .legend i.br{background:transparent;border:1.5px dashed var(--muted)}
+  .legend i.act{background:var(--blue)}
+  #nodeDetail{border-top:1px solid var(--line);margin-top:14px;padding-top:12px;display:none}
+  #nodeDetail.open{display:block}
+  #nodeDetail h3{margin:0 0 8px;font-size:14px}
+  .statebar{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:10px}
+  .statebar .s{font-size:12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:4px 9px}
+  .statebar .s b{color:var(--ink)}
+  .evline{font-size:12.5px;padding:3px 0;border-bottom:1px dashed var(--line);color:var(--muted)}
+  .evline b{color:var(--ink);font-weight:600}
+  .filterbar{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;color:var(--muted)}
   /* jobs */
   .job{border:1px solid var(--line);border-radius:12px;margin-bottom:10px;background:var(--card);overflow:hidden}
   .job-head{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 16px;cursor:pointer}
@@ -48,7 +71,7 @@
   .badge{font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;white-space:nowrap}
   .badge.green{background:var(--greenbg);color:var(--green)}.badge.blue{background:var(--bluebg);color:var(--blue)}
   .badge.amber{background:var(--amberbg);color:var(--amber)}.badge.red{background:var(--redbg);color:var(--red)}
-  .badge.grey{background:var(--bg);color:var(--muted)}
+  .badge.grey{background:var(--bg);color:var(--muted)}.badge.purple{background:var(--purplebg);color:var(--purple)}
   .mini{display:flex;gap:3px;margin-top:8px}
   .mini i{height:5px;flex:1;border-radius:4px;background:var(--grey)}
   .mini i.done{background:var(--green)}.mini i.now{background:var(--blue)}.mini i.skip{background:var(--amber)}.mini i.fail{background:var(--red)}
@@ -72,7 +95,7 @@
 <body>
 <div class="wrap">
   <h1>Career Agent — Flow</h1>
-  <p class="sub">Watch each job move through the whole pipeline. → <a href="/live" style="font-weight:700">Open the live activity feed</a> to see every tool call (AI, chromium) as it happens.</p>
+  <p class="sub">Watch every job move through the whole pipeline. Click a node in the diagram to see what that agent is doing right now. → <a href="/live" style="font-weight:700">Open the live activity feed</a> for every tool call (AI, chromium) as it happens.</p>
 
   <div id="banner" class="banner" style="display:none"></div>
 
@@ -82,12 +105,25 @@
   </div>
 
   <div class="card">
-    <h2>The pipeline — where every job goes</h2>
-    <div id="flow" class="flow"></div>
+    <h2>
+      <span>The pipeline — four agents, one autonomous flow</span>
+      <span class="row" id="terminalCounts"></span>
+    </h2>
+    <div id="diagram"></div>
+    <div class="legend">
+      <span><i class="solid"></i> always happens</span>
+      <span><i class="br"></i> only when a gap is found</span>
+      <span><i class="act"></i> jobs are here right now (pulsing = live)</span>
+      <span>click any box for details ↴</span>
+    </div>
+    <div id="nodeDetail"></div>
   </div>
 
   <div class="card">
-    <h2>Jobs (click one to see everything the agents did)</h2>
+    <h2>
+      <span>Jobs (click one to see everything the agents did)</span>
+      <span id="filterChip"></span>
+    </h2>
     <div id="jobs"><span class="empty">Loading…</span></div>
   </div>
 
@@ -95,27 +131,57 @@
 </div>
 
 <script>
-// stage -> lifecycle states, in flow order
-const STAGES=[
-  {n:1,l:"Find job",tool:"job finder",states:["discovered","normalized"]},
-  {n:2,l:"Check fit",tool:"AI",states:["qualifying","analyzed"]},
-  {n:3,l:"Research company",tool:"chromium + AI",states:["company_researched"]},
-  {n:4,l:"Match, gaps & people",tool:"AI",states:["candidate_matched","evidence_analyzed"]},
-  {n:5,l:"Tailor resume",tool:"PDF",states:["application_preparation","resume_generated"]},
-  {n:6,l:"Ready to apply",tool:"",states:["application_ready"]},
-  {n:7,l:"Apply & verify",tool:"chromium",states:["application_executing","application_verified","application_ambiguous"]},
-  {n:8,l:"Track reply",tool:"",states:["tracking","response_received","response_analyzed","action_planned","action_executed"]},
+// ---- pipeline model -------------------------------------------------------
+// Every LifecycleState belongs to exactly one node below (the diagram) or is
+// terminal (skipped/failed, shown as small counters instead of a box).
+const NODES=[
+  {id:"job_finder", label:"Job Finder", sub:"discover & qualify", agent:["job_finder","discovery"],
+   states:["discovered","normalized","qualifying","analyzed"], col:0, row:0},
+  {id:"response_builder", label:"Response Builder", sub:"research, match, gaps", agent:["response_builder"],
+   states:["company_researched","candidate_matched","evidence_analyzed"], col:1, row:0},
+  {id:"project_builder", label:"Project Builder", sub:"builds a demo project\nonly if a gap is found", agent:["project_builder"], branch:true,
+   states:["project_planning","project_building","project_testing","project_review","project_published","evidence_updated"], col:1, row:1},
+  {id:"prepare", label:"Tailor & Prepare", sub:"resume + ready to apply", agent:["resume","lifecycle"],
+   states:["application_preparation","resume_generated","application_ready"], col:2, row:0},
+  {id:"job_applier", label:"Job Applier", sub:"apply + outreach", agent:["job_applier","browser"],
+   states:["application_executing","application_verified","application_ambiguous","outreach_executing"], col:3, row:0},
+  {id:"response_analyzer", label:"Response Analyzer", sub:"reads replies, escalates", agent:["response_analyzer"],
+   states:["tracking","response_received","response_analyzed","action_planned","action_executed"], col:4, row:0},
 ];
+const EDGES=[
+  {from:"job_finder", to:"response_builder"},
+  {from:"response_builder", to:"project_builder", branch:true, label:"gap found"},
+  {from:"project_builder", to:"prepare", branch:true, label:"evidence updated"},
+  {from:"response_builder", to:"prepare", label:"no gap"},
+  {from:"prepare", to:"job_applier"},
+  {from:"job_applier", to:"response_analyzer"},
+];
+const BACKBONE=["job_finder","response_builder","prepare","job_applier","response_analyzer"];
+
 const STATE_PLAIN={
   discovered:["Just found","grey"],normalized:["Read posting","blue"],qualifying:["AI checking fit…","blue"],
   analyzed:["Good fit","green"],company_researched:["Company researched","blue"],candidate_matched:["Matched profile","blue"],
-  evidence_analyzed:["Evidence checked","blue"],application_preparation:["Preparing","blue"],resume_generated:["Resume written","blue"],
+  evidence_analyzed:["Evidence checked","blue"],
+  project_planning:["Planning demo project","purple"],project_building:["Building demo project","purple"],
+  project_testing:["Testing demo project","purple"],project_review:["Reviewing demo project","purple"],
+  project_published:["Demo project ready","purple"],evidence_updated:["Evidence updated","blue"],
+  application_preparation:["Preparing","blue"],resume_generated:["Resume written","blue"],
   application_ready:["Ready to apply","green"],application_executing:["Applying…","blue"],application_verified:["Applied ✓","green"],
-  application_ambiguous:["Needs a look","amber"],tracking:["Tracking reply","green"],skipped:["Skipped — not a fit","amber"],failed:["Problem","red"],
+  application_ambiguous:["Needs a look","amber"],outreach_executing:["Drafting outreach","blue"],
+  tracking:["Tracking reply","green"],response_received:["Reply received","blue"],response_analyzed:["Reply classified","blue"],
+  action_planned:["Planning next step","amber"],action_executed:["Escalated to you","amber"],
+  skipped:["Skipped — not a fit","amber"],failed:["Problem","red"],
 };
-const ACTOR={discovery:"Job finder",lifecycle:"Coordinator",job_finder:"AI fit-checker",response_builder:"Response builder",resume:"Resume writer",browser:"Application bot",job_applier:"Job applier"};
+const ACTOR={discovery:"Job finder",lifecycle:"Coordinator",job_finder:"AI fit-checker",response_builder:"Response builder",
+  project_builder:"Project builder",resume:"Resume writer",browser:"Application bot",job_applier:"Job applier",
+  response_analyzer:"Response analyzer"};
 
-function stageIndex(state){for(let i=0;i<STAGES.length;i++)if(STAGES[i].states.includes(state))return i;return -1;}
+function nodeOf(state){return NODES.find(n=>n.states.includes(state));}
+function backboneIndex(state){
+  const n=nodeOf(state); if(!n) return -1;
+  const id=n.branch?"response_builder":n.id; // a project-builder job hasn't reached "prepare" yet
+  return BACKBONE.indexOf(id);
+}
 async function J(p,o){const r=await fetch(p,o);if(!r.ok)throw new Error(r.status);return r.json();}
 function esc(s){return (s??"").toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
 
@@ -128,27 +194,118 @@ function renderComponents(s){
   }).join("");
   const la=s.live_actions,b=document.getElementById("banner");b.style.display="block";
   if(la.enabled){b.style.background="var(--redbg)";b.style.color="var(--red)";b.textContent=`⚠ Live applying is ON — may submit real applications (up to ${la.daily_application_limit}/day).`;}
-  else{b.style.background="var(--amberbg)";b.style.color="var(--amber)";b.textContent="🛡 Safe mode: does everything up to “Ready to apply” but will NOT submit real applications yet.";}
+  else{b.style.background="var(--amberbg)";b.style.color="var(--amber)";b.textContent="🛡 Safe mode: does everything up to “Ready to apply” but will NOT submit real applications, outreach emails, or GitHub pushes yet.";}
 }
-function renderFlow(jobs){
-  const idx=jobs.map(j=>({i:stageIndex(j.lifecycle_state),term:j.lifecycle_state==="skipped"||j.lifecycle_state==="failed",now:!["skipped","failed"].includes(j.lifecycle_state)}));
-  const html=STAGES.map((st,si)=>{
-    const reached=idx.filter(x=>x.i>=si && x.i>=0).length;
-    const activeNow=idx.some(x=>x.i===si && x.now);
-    return `<div class="stage ${activeNow?"active":""}">${activeNow?'<span class="live"></span>':''}
-      <div class="sn">step ${st.n}</div><div class="sl">${st.l}</div>
-      <div class="cnt">${reached}</div>${st.tool?`<div class="tool">${st.tool}</div>`:'<div class="tool">&nbsp;</div>'}</div>`;
-  }).join('<span class="arrow">›</span>');
-  document.getElementById("flow").innerHTML=html;
+
+// ---- SVG diagram -----------------------------------------------------------
+const NW=190, NH=76, GX=54, GY=58, PAD=16;
+function nodeXY(n){return {x:PAD+n.col*(NW+GX), y:PAD+n.row*(NH+GY)};}
+function edgeAnchor(n,side){ // side: "l","r","t","b"
+  const {x,y}=nodeXY(n);
+  if(side==="l") return {x,y:y+NH/2};
+  if(side==="r") return {x:x+NW,y:y+NH/2};
+  if(side==="t") return {x:x+NW/2,y};
+  return {x:x+NW/2,y:y+NH};
 }
+let selectedNode=null;
+
+function renderDiagram(jobs){
+  const counts={}; NODES.forEach(n=>counts[n.id]=jobs.filter(j=>n.states.includes(j.lifecycle_state)).length);
+  const skipped=jobs.filter(j=>j.lifecycle_state==="skipped").length;
+  const failed=jobs.filter(j=>j.lifecycle_state==="failed").length;
+  document.getElementById("terminalCounts").innerHTML=
+    `<span class="chip click" data-terminal="skipped"><span class="dot warn"></span>Skipped ${skipped}</span>`+
+    `<span class="chip click" data-terminal="failed"><span class="dot bad"></span>Failed ${failed}</span>`;
+
+  const maxCol=Math.max(...NODES.map(n=>n.col)), maxRow=Math.max(...NODES.map(n=>n.row));
+  const W=PAD*2+(maxCol+1)*NW+maxCol*GX, H=PAD*2+(maxRow+1)*NH+maxRow*GY;
+
+  let edgesSvg="";
+  EDGES.forEach(e=>{
+    const from=NODES.find(n=>n.id===e.from), to=NODES.find(n=>n.id===e.to);
+    const down=to.row>from.row, up=to.row<from.row;
+    const a=edgeAnchor(from, down?"b":(up?"t":"r"));
+    const b=edgeAnchor(to, down?"t":(up?"b":"l"));
+    const on=counts[to.id]>0;
+    const mid=`${a.x+(b.x-a.x)/2},${a.y+(b.y-a.y)/2-6}`;
+    edgesSvg+=`<path class="edge-line ${e.branch?"branch":""} ${on?"on":""}" marker-end="url(#arrow${on?"On":""})"
+      d="M${a.x},${a.y} Q${mid} ${b.x},${b.y}"/>`;
+    if(e.label) edgesSvg+=`<text class="edge-label" x="${(a.x+b.x)/2}" y="${(a.y+b.y)/2-9}" text-anchor="middle">${esc(e.label)}</text>`;
+  });
+
+  let nodesSvg="";
+  NODES.forEach(n=>{
+    const {x,y}=nodeXY(n), active=counts[n.id]>0, sel=selectedNode===n.id;
+    const subLines=n.sub.split("\n");
+    nodesSvg+=`<g class="node-box ${active?"active":""} ${sel?"selected":""}" data-node="${n.id}" transform="translate(${x},${y})">
+      ${active?`<rect class="pulse-ring" x="-4" y="-4" width="${NW+8}" height="${NH+8}" rx="16"/>`:""}
+      <rect class="node-rect" width="${NW}" height="${NH}" rx="14"/>
+      <text class="node-label" x="14" y="22">${esc(n.label)}</text>
+      ${subLines.map((l,i)=>`<text class="node-sub" x="14" y="${37+i*12}">${esc(l)}</text>`).join("")}
+      <text class="node-count ${active?"active":""}" x="${NW-16}" y="${NH-16}" text-anchor="end">${counts[n.id]}</text>
+    </g>`;
+  });
+
+  document.getElementById("diagram").innerHTML=
+    `<svg id="diagram-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMin meet">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--line)"/>
+        </marker>
+        <marker id="arrowOn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--blue)"/>
+        </marker>
+      </defs>
+      ${edgesSvg}${nodesSvg}
+    </svg>`;
+
+  document.querySelectorAll(".node-box").forEach(el=>el.onclick=()=>selectNode(el.dataset.node, jobs));
+  document.querySelectorAll("[data-terminal]").forEach(el=>el.onclick=()=>selectTerminal(el.dataset.terminal, jobs));
+}
+
+async function selectNode(id, jobs){
+  selectedNode = selectedNode===id ? null : id;
+  jobFilter = selectedNode ? {type:"node", id: selectedNode} : null;
+  renderDiagram(jobs); renderFilterChip(); renderJobsList(jobs);
+  const panel=document.getElementById("nodeDetail");
+  if(!selectedNode){panel.classList.remove("open");panel.innerHTML="";return;}
+  const n=NODES.find(x=>x.id===id);
+  panel.classList.add("open");
+  panel.innerHTML=`<h3>${esc(n.label)}</h3><div class="statebar">`+
+    n.states.map(s=>{const c=jobs.filter(j=>j.lifecycle_state===s).length;const pl=STATE_PLAIN[s]||[s];
+      return `<span class="s">${esc(pl[0])}: <b>${c}</b></span>`;}).join("")+
+    `</div><div id="nodeEvents" class="muted">Loading recent activity…</div>`;
+  try{
+    const data=await J("/api/events?limit=400");
+    const mine=data.events.filter(e=>n.agent.includes(e.agent)).slice(-10).reverse();
+    document.getElementById("nodeEvents").innerHTML = mine.length
+      ? mine.map(e=>`<div class="evline"><b>${new Date(e.created_at).toLocaleTimeString()}</b> — ${esc(e.title)}</div>`).join("")
+      : '<div class="evline">No activity from this agent yet.</div>';
+  }catch(e){document.getElementById("nodeEvents").textContent="Could not load recent activity.";}
+}
+function selectTerminal(kind, jobs){
+  jobFilter = (jobFilter && jobFilter.type==="terminal" && jobFilter.id===kind) ? null : {type:"terminal", id:kind};
+  selectedNode=null; document.getElementById("nodeDetail").classList.remove("open");
+  renderDiagram(jobs); renderFilterChip(); renderJobsList(jobs);
+}
+function renderFilterChip(){
+  const el=document.getElementById("filterChip");
+  if(!jobFilter){el.innerHTML="";return;}
+  const label = jobFilter.type==="node" ? (NODES.find(n=>n.id===jobFilter.id)||{}).label : `Status: ${jobFilter.id}`;
+  el.innerHTML=`<span class="chip click" id="clearFilter">Showing: ${esc(label)} ✕</span>`;
+  document.getElementById("clearFilter").onclick=()=>{jobFilter=null;selectedNode=null;document.getElementById("nodeDetail").classList.remove("open");refreshFromCache();};
+}
+
+let jobFilter=null, lastJobs=[];
+function refreshFromCache(){renderDiagram(lastJobs);renderFilterChip();renderJobsList(lastJobs);}
 
 const open=new Set();
 function miniBar(state){
-  const cur=stageIndex(state),skip=state==="skipped",fail=state==="failed";
-  let out="";for(let i=0;i<STAGES.length;i++){let c="";
-    if(skip)c=i<2?"done":(i===2?"skip":"");
+  const cur=backboneIndex(state),skip=state==="skipped",fail=state==="failed";
+  let out="";for(let i=0;i<BACKBONE.length;i++){let c="";
+    if(skip)c=i<1?"done":(i===1?"skip":"");
     else if(fail)c=i<cur?"done":(i===cur?"fail":"");
-    else{const done=["tracking","application_verified"].includes(state);c=done?"done":(i<cur?"done":(i===cur?"now":""));}
+    else{const done=["tracking","response_received","response_analyzed","action_planned","action_executed"].includes(state);c=done?"done":(i<cur?"done":(i===cur?"now":""));}
     out+=`<i class="${c}"></i>`;}return out;
 }
 function list(arr){return (arr&&arr.length)?"<ul>"+arr.map(x=>`<li>${esc(typeof x==="string"?x:JSON.stringify(x))}</li>`).join("")+"</ul>":'<span class="muted">—</span>';}
@@ -156,7 +313,7 @@ function list(arr){return (arr&&arr.length)?"<ul>"+arr.map(x=>`<li>${esc(typeof 
 async function renderDetail(id,container){
   container.innerHTML='<div class="empty">Loading details…</div>';
   let d;try{d=await J(`/api/jobs/${id}/detail`);}catch(e){container.innerHTML='<div class="empty">Could not load.</div>';return;}
-  const fit=d.fit,r=d.company_research,g=d.resume_gaps,p=d.contacts;
+  const fit=d.fit,r=d.company_research,g=d.resume_gaps,p=d.contacts,proj=d.project,out=d.outreach,conv=d.conversation;
   let h="";
   h+=`<div class="sec"><h4>1 · Fit check (AI)</h4>`;
   h+= fit?`<div class="kv"><b>Score ${(fit.score*100|0)}%</b> — ${esc(fit.rationale||"")}</div>`:'<span class="muted">not run yet</span>';
@@ -174,6 +331,13 @@ async function renderDetail(id,container){
     if(g.project_recommended)h+=`<div class="kv"><span class="pill">💡 Project recommended</span> ${esc(g.project_idea||"")}</div>`;
   }else h+='<span class="muted">not run yet</span>';
   h+=`</div>`;
+  if(g&&g.project_recommended){
+    h+=`<div class="sec"><h4>3b · Project Builder</h4>`;
+    h+= proj?`<div class="kv">✅ Scaffolded <span class="muted">${esc(proj.uri)}</span></div>`+
+        (proj.provenance&&proj.provenance.published_private?'<div class="kv good">Pushed to a private GitHub repo</div>':'<div class="kv muted">Local scaffold only — needs GITHUB_TOKEN + live actions to publish</div>')
+      : '<span class="muted">not built yet</span>';
+    h+=`</div>`;
+  }
   h+=`<div class="sec"><h4>4 · People to contact (AI)</h4>`;
   if(p){h+=`<div>${(p.target_roles||[]).map(t=>`<span class="pill">${esc(t)}</span>`).join("")||'<span class="muted">—</span>'}</div>`;
     if(p.outreach_angle)h+=`<div class="kv"><span class="muted">Angle:</span> ${esc(p.outreach_angle)}</div>`;
@@ -185,6 +349,12 @@ async function renderDetail(id,container){
   h+=`<div class="sec"><h4>6 · Application</h4>`;
   h+= d.application?`<div class="kv">Status: <b>${esc(d.application.status)}</b> <span class="muted">${esc(d.application.evidence_uri||"")}</span></div>`:'<span class="muted">not created yet</span>';
   h+=`</div>`;
+  h+=`<div class="sec"><h4>7 · Outreach draft</h4>`;
+  h+= out?`<div class="kv">Status: <b>${esc(out.status)}</b> — ${esc(out.subject)}</div><div class="kv muted">To: ${esc(out.recipient)} (a human must verify a real contact before this can send)</div>`:'<span class="muted">no reply-verified application yet</span>';
+  h+=`</div>`;
+  h+=`<div class="sec"><h4>8 · Their reply</h4>`;
+  h+= conv?`<div class="kv">Classified as <b>${esc((STATE_PLAIN[conv.stage]||[conv.stage])[0]||conv.stage)}</b> via ${esc(conv.channel)}${conv.action_required?' <span class="pill">needs your review</span>':''}</div><div class="kv muted">“${esc(conv.last_snippet)}”</div>`:'<span class="muted">no reply yet</span>';
+  h+=`</div>`;
   h+=`<div class="sec"><h4>Timeline</h4>`+ (d.transitions||[]).map(t=>{
       const pl=STATE_PLAIN[t.to_state]||[t.to_state];
       return `<div class="tl"><span class="d"></span><div>${esc(pl[0])} <span class="w">— ${ACTOR[t.actor]||t.actor} · ${new Date(t.at).toLocaleTimeString()}</span>${t.reason?`<div class="w">${esc(t.reason)}</div>`:""}</div></div>`;
@@ -193,11 +363,18 @@ async function renderDetail(id,container){
   container.innerHTML=h;
 }
 
-async function renderJobs(){
-  const jobs=await J("/api/jobs");
-  renderFlow(jobs);
+function matchesFilter(j){
+  if(!jobFilter) return true;
+  if(jobFilter.type==="terminal") return j.lifecycle_state===jobFilter.id;
+  const n=NODES.find(x=>x.id===jobFilter.id);
+  return n && n.states.includes(j.lifecycle_state);
+}
+
+function renderJobsList(allJobs){
+  const jobs=allJobs.filter(matchesFilter);
   const box=document.getElementById("jobs");
-  if(!jobs.length){box.innerHTML='<div class="empty">No jobs yet. Add a source and discover, or seed a job.</div>';return;}
+  if(!allJobs.length){box.innerHTML='<div class="empty">No jobs yet. Add a source and discover, or seed a job.</div>';return;}
+  if(!jobs.length){box.innerHTML='<div class="empty">No jobs match this filter right now.</div>';return;}
   box.innerHTML=jobs.map(j=>{
     const pl=STATE_PLAIN[j.lifecycle_state]||[j.lifecycle_state,"grey"];const isOpen=open.has(j.id);
     return `<div class="job">
@@ -214,8 +391,15 @@ async function renderJobs(){
     if(open.has(id)){open.delete(id);det.classList.remove("open");}
     else{open.add(id);det.classList.add("open");renderDetail(id,det);}
   });
-  // refresh any open detail
   open.forEach(id=>{const det=document.getElementById("det-"+id);if(det)renderDetail(id,det);});
+}
+
+async function renderJobs(){
+  const jobs=await J("/api/jobs");
+  lastJobs=jobs;
+  renderDiagram(jobs);
+  renderFilterChip();
+  renderJobsList(jobs);
 }
 
 async function refresh(){

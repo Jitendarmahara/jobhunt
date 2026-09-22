@@ -6,6 +6,7 @@ from temporalio.workflow import ParentClosePolicy
 with workflow.unsafe.imports_passed_through():
     from app.activities import (
         analyze_gaps_activity,
+        build_project_activity,
         create_application_activity,
         execute_application_browser_activity,
         find_people_activity,
@@ -87,8 +88,14 @@ class JobLifecycleWorkflow:
         await workflow.execute_activity(research_company_activity, job_id, start_to_close_timeout=_BROWSER)
         await workflow.execute_activity(match_candidate_activity, job_id, start_to_close_timeout=_STD)
         # Resume strengths/gaps and people to contact (best-effort annotations).
-        await workflow.execute_activity(analyze_gaps_activity, job_id, start_to_close_timeout=_STD)
+        gap_result = await workflow.execute_activity(analyze_gaps_activity, job_id, start_to_close_timeout=_STD)
         await workflow.execute_activity(find_people_activity, job_id, start_to_close_timeout=_STD)
+
+        # Project Builder: only when the gap analysis found a material, closeable gap.
+        if gap_result.get("gaps", {}).get("project_recommended"):
+            project = await workflow.execute_activity(build_project_activity, job_id, start_to_close_timeout=_POLL)
+            if project.get("status") == "failed":
+                return {"job_id": job_id, "status": "failed", "stage": "project", "reason": project.get("reason")}
 
         resume = await workflow.execute_activity(generate_resume_activity, job_id, start_to_close_timeout=_STD)
         if resume.get("status") == "failed":
