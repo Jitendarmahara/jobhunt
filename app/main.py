@@ -424,6 +424,9 @@ def job_detail(job_id: str, session: Session = Depends(get_session)) -> dict:
         select(Application).where(Application.job_id == job_id).order_by(Application.created_at.desc()).limit(1)
     )
     resume = artifacts.get("tailored_resume_pdf")
+    outreach = session.scalar(
+        select(OutreachMessage).where(OutreachMessage.job_id == job_id).order_by(OutreachMessage.created_at.desc()).limit(1)
+    )
     transitions = session.scalars(
         select(JobTransition).where(JobTransition.job_id == job_id).order_by(JobTransition.created_at.asc())
     ).all()
@@ -451,6 +454,11 @@ def job_detail(job_id: str, session: Session = Depends(get_session)) -> dict:
         },
         "resume": None if not resume else {"uri": resume.uri, "created_at": resume.created_at.isoformat()},
         "application": None if not application else {"status": application.status.value, "evidence_uri": application.browser_evidence_uri},
+        "outreach": None if not outreach else {
+            "status": outreach.status,
+            "recipient": outreach.recipient,
+            "subject": outreach.subject,
+        },
         "transitions": [
             {"to_state": t.to_state.value, "actor": t.actor, "reason": t.reason, "at": t.created_at.isoformat()}
             for t in transitions

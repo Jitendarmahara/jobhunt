@@ -18,6 +18,7 @@ from app.activities import (
     match_candidate_activity,
     poll_source_activity,
     prepare_application_activity,
+    prepare_outreach_activity,
     qualify_job_activity,
     research_company_activity,
     send_outreach_activity,
@@ -87,6 +88,7 @@ async def run() -> None:
             match_candidate_activity,
             generate_resume_activity,
             create_application_activity,
+            prepare_outreach_activity,
             lifecycle_submit_application_activity,
         ],
     )

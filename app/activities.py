@@ -531,6 +531,76 @@ async def create_application_activity(job_id: str, resume_artifact_id: str | Non
 
 
 @activity.defn
+async def prepare_outreach_activity(job_id: str) -> dict:
+    """Job Applier: draft an outreach message once the application is verified.
+
+    Uses the ``contacts`` artifact from the Response Builder (target roles +
+    outreach angle — never fabricated names or emails). The message is always
+    only *drafted*: the recipient is left as an explicit human-review
+    placeholder because the system never invents a real contact's email, so an
+    autonomous send is never actually attempted here regardless of policy.
+    ``attempt_send`` in the result reflects whether the outreach policy (live
+    actions armed + a positive daily limit) *would* currently permit a send —
+    off by default — so the operator can see readiness without anything being
+    sent. A human (or a future contact-resolution step) supplies a verified
+    recipient and sends via the existing outreach endpoint/workflow.
+    """
+    _begin("job_applier", job_id)
+    with SessionLocal() as session:
+        job = session.get(Job, job_id)
+        if not job:
+            return {"status": "failed", "reason": "job not found"}
+
+        existing = session.scalar(select(OutreachMessage).where(OutreachMessage.job_id == job_id))
+        if existing:
+            record_transition(session, job, LifecycleState.TRACKING, actor="lifecycle", idempotency_key=f"{job_id}:tracking")
+            return {"status": "ok", "cached": True, "outreach_id": existing.id}
+
+        contacts_artifact = session.scalar(select(Artifact).where(Artifact.job_id == job_id, Artifact.kind == "contacts"))
+        contacts = contacts_artifact.provenance if contacts_artifact else {}
+        target_roles = contacts.get("target_roles") or []
+        profile = CandidateProfileService.approved(session)
+        spec = _champion(session, Domain.APPLICATION)
+        if not target_roles or not profile or not spec:
+            emit("Job Applier: no contact suggested — skipping outreach", level="info")
+            record_transition(session, job, LifecycleState.TRACKING, actor="lifecycle", idempotency_key=f"{job_id}:tracking")
+            return {"status": "skipped", "reason": "no contacts suggested or missing profile/champion"}
+
+        try:
+            enforce_outreach_policy(session, PolicyService.get(session))
+            attempt_send = True
+        except PolicyBlockedError as exc:
+            attempt_send = False
+            emit(f"Outreach is OFF by policy (safe by default): {exc}", level="warn")
+
+        record_transition(
+            session, job, LifecycleState.OUTREACH_EXECUTING, actor="job_applier",
+            idempotency_key=f"{job_id}:outreach_executing",
+        )
+
+        angle = contacts.get("outreach_angle") or f"Following up on my application for {job.title} at {job.company}."
+        name = profile.facts.get("name", "the candidate")
+        message = OutreachMessage(
+            job_id=job_id,
+            agent_spec_id=spec.id,
+            recipient="pending-human-verification",
+            subject=f"Following up: {job.title} application at {job.company}",
+            body=f"Hi,\n\n{angle}\n\nBest,\n{name}",
+            status="draft",
+        )
+        session.add(message)
+        session.commit()
+        session.refresh(message)
+        emit(
+            f"Job Applier: drafted outreach to a {target_roles[0]}"
+            + ("" if attempt_send else " (send held — no recipient verified / policy off)"),
+            detail={"outreach_id": message.id, "target_roles": target_roles, "attempt_send": attempt_send},
+        )
+        record_transition(session, job, LifecycleState.TRACKING, actor="lifecycle", idempotency_key=f"{job_id}:tracking")
+        return {"status": "ok", "outreach_id": message.id, "attempt_send": attempt_send}
+
+
+@activity.defn
 async def lifecycle_submit_application_activity(job_id: str, application_id: str) -> dict:
     """Execute the external submission with an ambiguous-outcome guard.
 
@@ -559,15 +629,19 @@ async def lifecycle_submit_application_activity(job_id: str, application_id: str
 
     result = await execute_application_browser_activity(application_id)
 
+    outcome = result.get("status")
     with SessionLocal() as session:
         job = session.get(Job, job_id)
-        outcome = result.get("status")
         if outcome == "submitted":
             record_transition(session, job, LifecycleState.APPLICATION_VERIFIED, actor="browser")
-            record_transition(session, job, LifecycleState.TRACKING, actor="lifecycle")
         elif outcome == "needs_escalation":
             record_transition(session, job, LifecycleState.APPLICATION_AMBIGUOUS, actor="browser", reason=outcome)
             record_transition(session, job, LifecycleState.TRACKING, actor="lifecycle")
         else:
             record_transition(session, job, LifecycleState.FAILED, actor="browser", reason=str(result))
-        return result
+
+    if outcome == "submitted":
+        # Application verified: the Job Applier now (safely) drafts outreach —
+        # see prepare_outreach_activity for why a send is never auto-triggered.
+        await prepare_outreach_activity(job_id)
+    return result
