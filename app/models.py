@@ -279,6 +279,28 @@ class InboundEmail(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class ConversationState(Base):
+    """Response Analyzer's durable read model for a job's inbound conversation.
+
+    One row per job, upserted on every newly-ingested inbound message. This is
+    intentionally separate from ``Outcome`` (an append-only evidence log): it
+    is the *current* classified state a human or a future automation reads to
+    decide what, if anything, happens next — never a channel to fabricate a
+    reply from.
+    """
+
+    __tablename__ = "conversation_states"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), nullable=False, unique=True, index=True)
+    channel: Mapped[str] = mapped_column(String(32), nullable=False)
+    stage: Mapped[OutcomeStage] = mapped_column(Enum(OutcomeStage), nullable=False, default=OutcomeStage.UNKNOWN)
+    action_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_snippet: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    last_message_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class Escalation(Base):
     __tablename__ = "escalations"
 

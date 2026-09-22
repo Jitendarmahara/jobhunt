@@ -23,6 +23,7 @@ from app.models import (
     ApplicationStatus,
     Artifact,
     Assessment,
+    ConversationState,
     Escalation,
     Job,
     JobSource,
@@ -427,6 +428,7 @@ def job_detail(job_id: str, session: Session = Depends(get_session)) -> dict:
     outreach = session.scalar(
         select(OutreachMessage).where(OutreachMessage.job_id == job_id).order_by(OutreachMessage.created_at.desc()).limit(1)
     )
+    conversation = session.scalar(select(ConversationState).where(ConversationState.job_id == job_id))
     transitions = session.scalars(
         select(JobTransition).where(JobTransition.job_id == job_id).order_by(JobTransition.created_at.asc())
     ).all()
@@ -458,6 +460,13 @@ def job_detail(job_id: str, session: Session = Depends(get_session)) -> dict:
             "status": outreach.status,
             "recipient": outreach.recipient,
             "subject": outreach.subject,
+        },
+        "conversation": None if not conversation else {
+            "channel": conversation.channel,
+            "stage": conversation.stage.value,
+            "action_required": conversation.action_required,
+            "last_snippet": conversation.last_snippet,
+            "last_message_at": conversation.last_message_at.isoformat(),
         },
         "transitions": [
             {"to_state": t.to_state.value, "actor": t.actor, "reason": t.reason, "at": t.created_at.isoformat()}
